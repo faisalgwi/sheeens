@@ -1,8 +1,10 @@
-name: Update data and deploy site
+name: Update bird data
 
+# Cloudflare Pages deploys the site automatically after every push to main (including these data commits).
 on:
   push:
     branches: [main]
+    paths: ["scripts/**", "data/local-names.json", ".github/workflows/**"]
   schedule:
     - cron: "0 */3 * * *"   # sightings every 3 hours
     - cron: "23 0 * * 1"    # full bird data every Monday 03:23 Riyadh
@@ -15,20 +17,15 @@ on:
 
 permissions:
   contents: write
-  pages: write
-  id-token: write
 
 concurrency:
   group: site
   cancel-in-progress: false
 
 jobs:
-  build-deploy:
+  update-data:
     runs-on: ubuntu-latest
     timeout-minutes: 60
-    environment:
-      name: github-pages
-      url: ${{ steps.deploy.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
 
@@ -64,11 +61,4 @@ jobs:
           git config user.name "sheeens-bot"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add data
-          if git diff --cached --quiet; then echo "no data changes"; else git commit -m "Update bird data [skip ci]" && (git push || (git pull --rebase -X theirs origin main && git push)); fi
-
-      - uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: .
-      - id: deploy
-        uses: actions/deploy-pages@v4
+          if git diff --cached --quiet; then echo "no data changes"; else git commit -m "Update bird data" && (git push || (git pull --rebase -X theirs origin main && git push)); fi
