@@ -44,11 +44,12 @@ const store = {
 // ---------- data ----------
 let indexPromise, sightingsPromise;
 const detailCache = new Map();
+const plain = (t) => (t ? String(t).replace(/[\u064B-\u0652\u0670]/g, "") : t); // drop tashkeel for clean display
 function loadIndex() {
   indexPromise ??= fetch("data/birds.json", { cache: "no-cache" }).then((r) => {
     if (!r.ok) throw new Error("تعذّر تحميل بيانات الطيور");
     return r.json();
-  });
+  }).then((d) => { for (const b of d.birds) b.ar = plain(b.ar); return d; });
   return indexPromise;
 }
 function loadSightings() {
@@ -57,7 +58,8 @@ function loadSightings() {
 }
 async function loadDetail(id) {
   if (!detailCache.has(id)) {
-    detailCache.set(id, fetch(`data/b/${id}.json`).then((r) => { if (!r.ok) throw new Error("الطير غير موجود"); return r.json(); }));
+    detailCache.set(id, fetch(`data/b/${id}.json`).then((r) => { if (!r.ok) throw new Error("الطير غير موجود"); return r.json(); })
+      .then((b) => { b.ar = plain(b.ar); b.arAlt = [...new Set((b.arAlt ?? []).map(plain).filter((x) => x && x !== b.ar))]; return b; }));
   }
   return detailCache.get(id);
 }
