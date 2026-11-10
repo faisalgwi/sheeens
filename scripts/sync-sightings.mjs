@@ -50,6 +50,17 @@ for (const code of huntingCodes) {
   await sleep(250);
 }
 
+// Hide exact locations of protected, threatened and falconry-sensitive species so the site can't help poaching.
+const sensitive = new Set(
+  index.birds
+    .filter((b) => ["NT", "VU", "EN", "CR"].includes(b.iucn) || ["الصقور", "طرائد الصقارة"].includes(b.group))
+    .flatMap((b) => [b.sci, b.eb].filter(Boolean))
+);
+const hide = (o) => (sensitive.has(o.code) || sensitive.has(o.sci) ? { ...o, loc: null, lat: null, lng: null, sub: null, hidden: true } : o);
+for (const k of Object.keys(bySpecies)) bySpecies[k] = bySpecies[k].map(hide);
+latest.splice(0, latest.length, ...latest.map(hide));
+notable.splice(0, notable.length, ...notable.map(hide));
+
 await writeFile(
   new URL("sightings.json", DATA),
   JSON.stringify({ generatedAt: new Date().toISOString(), latest, notable, bySpecies })

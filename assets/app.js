@@ -387,7 +387,7 @@ async function pageBird(id) {
   if (!s) { box.innerHTML = `<p class="muted">المشاهدات غير متاحة حالياً.</p>`; return; }
   const sci = new Set([b.sci, b.inatName].filter(Boolean));
   const obs = (b.ebird && s.bySpecies?.[b.ebird]) || [...s.latest, ...s.notable].filter((o) => o.code === b.ebird || sci.has(o.sci));
-  const uniq = [...new Map(obs.map((o) => [o.sub + o.code, o])).values()].sort((a, c) => c.dt.localeCompare(a.dt)).slice(0, 8);
+  const uniq = [...new Map(obs.map((o) => [(o.sub ?? o.dt) + o.code, o])).values()].sort((a, c) => c.dt.localeCompare(a.dt)).slice(0, 8);
   box.innerHTML = uniq.length ? `<ul class="list">${uniq.map(sightingRow).join("")}</ul><p class="muted" style="font-size:.8rem">من eBird خلال آخر 30 يوماً · حُدّثت ${timeAgo(s.generatedAt)}</p>`
     : `<p class="muted">ما سُجّلت له مشاهدات في eBird خلال آخر 30 يوماً.</p>`;
 }
@@ -405,10 +405,10 @@ function sightingRow(o, bird) {
     ${bird ? `<a class="thumb" href="#/bird/${bird.id}">${bird.ph ? `<img loading="lazy" src="${esc(photo(bird.ph, "square"))}" alt="">` : ""}</a>` : ""}
     <div class="grow">
       ${bird ? `<a class="t" href="#/bird/${bird.id}">${esc(bird.local || displayName(bird))}</a>` : ""}
-      <div class="${bird ? "s" : "t"}">${esc(o.loc)}</div>
+      <div class="${bird ? "s" : "t"}">${o.hidden ? "الموقع مخفي لحماية النوع" : esc(o.loc)}</div>
       <div class="s">${dateAr(o.dt)}${o.n ? ` · العدد: ${fmt.format(o.n)}` : ""}</div>
     </div>
-    <div class="side">${map ? `<a href="${map}" target="_blank" rel="noopener">الخريطة</a><br>` : ""}<a href="https://ebird.org/checklist/${esc(o.sub)}" target="_blank" rel="noopener">السجل</a></div>
+    <div class="side">${map ? `<a href="${map}" target="_blank" rel="noopener">الخريطة</a><br>` : ""}${o.sub ? `<a href="https://ebird.org/checklist/${esc(o.sub)}" target="_blank" rel="noopener">السجل</a>` : ""}</div>
   </li>`;
 }
 
@@ -550,7 +550,7 @@ async function pageSightings(params) {
   const notable = s.notable
     .map((o) => ({ o, b: bySci.get(o.code) || bySci.get(o.sci) }))
     .sort((a, b) => b.o.dt.localeCompare(a.o.dt));
-  const uniqNotable = [...new Map(notable.map((r) => [r.o.code + r.o.loc, r])).values()].slice(0, 30);
+  const uniqNotable = [...new Map(notable.map((r) => [r.o.code + (r.o.loc ?? r.o.dt), r])).values()].slice(0, 30);
   app.innerHTML = `
     <div class="section-head"><div><h1>المشاهدات الحديثة</h1><p>آخر رصد لكل نوع في المملكة خلال 30 يوماً، من سجلات راصدي eBird. حُدّثت ${timeAgo(s.generatedAt)}.</p></div></div>
     <div class="filters">
