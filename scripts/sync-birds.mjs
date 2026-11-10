@@ -193,7 +193,7 @@ for (let i = 0; i < withInat.length; i += 30) {
     b.inatN = t.observations_count ?? null;
     b.photos = (t.taxon_photos ?? [])
       .map((tp) => tp.photo)
-      .filter((p) => p && (p.medium_url || p.url))
+      .filter((p) => p && (p.medium_url || p.url) && p.license_code) // only openly licensed photos
       .slice(0, 6)
       .map((p) => ({
         u: String(p.medium_url || p.url).replace(/\/(square|medium|small|large|original)\.(\w+)(\?.*)?$/, "/{s}.$2"),
