@@ -1,0 +1,601 @@
+// Sheeens — Arabic reference guide to the birds of Saudi Arabia.
+const app = document.getElementById("app");
+const MONTHS = ["يناير", "فبراير", "مارس", "أبريل", "مايو", "يونيو", "يوليو", "أغسطس", "سبتمبر", "أكتوبر", "نوفمبر", "ديسمبر"];
+const MONTHS_SHORT = ["ينا", "فبر", "مار", "أبر", "ماي", "يون", "يول", "أغس", "سبت", "أكت", "نوف", "ديس"];
+const NOW_MONTH = new Date().getMonth();
+const STATUS = {
+  resident: { label: "مقيم", hint: "موجود في المملكة طوال السنة تقريباً", icon: "●" },
+  winter: { label: "زائر شتوي", hint: "يصل في الخريف ويقضي الشتاء", icon: "❄" },
+  summer: { label: "زائر صيفي", hint: "يصل في الربيع للتكاثر ويغادر في الخريف", icon: "☀" },
+  passage: { label: "عابر", hint: "يمر في هجرتي الربيع والخريف", icon: "⇅" },
+  vagrant: { label: "نادر", hint: "سجلاته قليلة جداً في المملكة", icon: "◇" },
+  unknown: { label: "غير محدد", hint: "السجلات لا تكفي لتحديد موسمه", icon: "○" },
+};
+const IUCN = {
+  LC: "غير مهدد", NT: "قريب من التهديد", VU: "معرّض للخطر", EN: "مهدد بالانقراض",
+  CR: "مهدد بشدة", EW: "منقرض في البرية", EX: "منقرض", DD: "بيانات ناقصة", NE: "لم يُقيَّم",
+};
+const REGIONS = [
+  ["الرياض", 24.7136, 46.6753], ["الخرج", 24.1556, 47.3346], ["الدوادمي", 24.5072, 44.3922], ["المجمعة", 25.9061, 45.3456],
+  ["الزلفي", 26.2994, 44.8151], ["القصيم - بريدة", 26.3592, 43.9818], ["حائل", 27.5114, 41.7208], ["حفر الباطن", 28.4328, 45.9708],
+  ["رفحاء", 29.6202, 43.4936], ["عرعر", 30.9753, 41.0381], ["طريف", 31.6725, 38.6637], ["القريات", 31.3317, 37.3428],
+  ["الجوف - سكاكا", 29.9697, 40.2064], ["تبوك", 28.3835, 36.5662], ["العلا", 26.6085, 37.9232], ["المدينة المنورة", 24.5247, 39.5692],
+  ["ينبع", 24.0895, 38.0618], ["جدة", 21.4858, 39.1925], ["مكة المكرمة", 21.3891, 39.8579], ["الطائف", 21.2703, 40.4158],
+  ["الباحة", 20.0129, 41.4677], ["القنفذة", 19.1264, 41.0789], ["بيشة", 19.9881, 42.6052], ["أبها", 18.2164, 42.5053],
+  ["جازان", 16.8892, 42.5511], ["نجران", 17.5656, 44.2289], ["شرورة", 17.4867, 47.1101], ["وادي الدواسر", 20.4607, 44.7816],
+  ["الأحساء", 25.3833, 49.5867], ["الدمام", 26.4207, 50.0888], ["الجبيل", 27.0174, 49.6225],
+];
+const WMO = {
+  0: "صحو", 1: "صحو غالباً", 2: "غائم جزئياً", 3: "غائم", 45: "ضباب", 48: "ضباب متجمد", 51: "رذاذ خفيف", 53: "رذاذ", 55: "رذاذ كثيف",
+  61: "مطر خفيف", 63: "مطر", 65: "مطر غزير", 66: "مطر متجمد", 67: "مطر متجمد غزير", 71: "ثلج خفيف", 73: "ثلج", 75: "ثلج كثيف",
+  80: "زخات خفيفة", 81: "زخات مطر", 82: "زخات غزيرة", 95: "عواصف رعدية", 96: "رعد مع برد", 99: "رعد مع برد كثيف",
+};
+const DIRS = ["شمالية", "شمالية شرقية", "شرقية", "جنوبية شرقية", "جنوبية", "جنوبية غربية", "غربية", "شمالية غربية"];
+
+const fmt = new Intl.NumberFormat("ar-SA-u-nu-latn");
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+const photo = (u, size = "medium") => (u ? u.replace("{s}", size) : null);
+const dirName = (deg) => DIRS[Math.round(((deg % 360) / 45)) % 8];
+const store = {
+  get(k, d) { try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch { return d; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
+};
+
+// ---------- data ----------
+let indexPromise, sightingsPromise;
+const detailCache = new Map();
+function loadIndex() {
+  indexPromise ??= fetch("data/birds.json", { cache: "no-cache" }).then((r) => {
+    if (!r.ok) throw new Error("تعذّر تحميل بيانات الطيور");
+    return r.json();
+  });
+  return indexPromise;
+}
+function loadSightings() {
+  sightingsPromise ??= fetch("data/sightings.json", { cache: "no-cache" }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+  return sightingsPromise;
+}
+async function loadDetail(id) {
+  if (!detailCache.has(id)) {
+    detailCache.set(id, fetch(`data/b/${id}.json`).then((r) => { if (!r.ok) throw new Error("الطير غير موجود"); return r.json(); }));
+  }
+  return detailCache.get(id);
+}
+
+const norm = (s) => String(s ?? "").toLowerCase()
+  .replace(/[ً-ْـ]/g, "").replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").replace(/ى/g, "ي").trim();
+const displayName = (b) => b.ar || b.en || b.sci;
+
+// ---------- small views ----------
+function strip(presence) {
+  if (!presence?.length) return "";
+  return `<div class="strip" title="تقدير وجوده في المملكة حسب الشهر">${presence
+    .map((p, i) => `<i class="${i === NOW_MONTH ? "now" : ""}" style="background:${rampColor(p)}"></i>`)
+    .join("")}</div>`;
+}
+function rampColor(p) {
+  if (p >= 0.75) return "var(--ramp-4)";
+  if (p >= 0.5) return "var(--ramp-3)";
+  if (p >= 0.25) return "var(--ramp-2)";
+  if (p > 0.05) return "var(--ramp-1)";
+  return "var(--ramp-0)";
+}
+function card(b) {
+  const img = photo(b.ph, "medium");
+  const st = STATUS[b.status] ?? STATUS.unknown;
+  return `<a class="card" href="#/bird/${b.id}">
+    ${b.hunting ? `<span class="mark">مقناص</span>` : ""}
+    <div class="ph ${img ? "" : "empty"}">${img ? `<img loading="lazy" src="${esc(img)}" alt="${esc(displayName(b))}">` : "بلا صورة"}</div>
+    <div class="body">
+      <div class="ar">${esc(displayName(b))}</div>
+      ${b.local && b.local !== b.ar ? `<div class="local">${esc(b.local)}</div>` : ""}
+      <div class="sci latin">${esc(b.sci)}</div>
+      <div class="meta">
+        <span class="tag" title="${esc(st.hint)}">${st.icon} ${st.label}</span>
+        ${b.iucn && b.iucn !== "LC" ? `<span class="tag iucn-${esc(b.iucn)}">${esc(IUCN[b.iucn] ?? b.iucn)}</span>` : ""}
+        ${b.snd ? `<span class="tag">♪ صوت</span>` : ""}
+      </div>
+      ${strip(b.presence)}
+    </div>
+  </a>`;
+}
+function setActiveNav(name) {
+  document.querySelectorAll("#nav a").forEach((a) => a.classList.toggle("active", a.dataset.nav === name));
+}
+const errorView = (e) => `<div class="error-box">${esc(e.message || e)}</div>`;
+const timeAgo = (d) => {
+  const diff = (Date.now() - new Date(d).getTime()) / 36e5;
+  if (diff < 1) return "قبل أقل من ساعة";
+  if (diff < 24) return `قبل ${Math.round(diff)} ساعة`;
+  const days = Math.round(diff / 24);
+  return days === 1 ? "أمس" : days === 2 ? "قبل يومين" : `قبل ${days} أيام`;
+};
+const dateAr = (d) => new Date(d.replace(" ", "T")).toLocaleDateString("ar-SA-u-ca-gregory-nu-latn", { day: "numeric", month: "long" });
+
+// ---------- weather ----------
+const wxCache = new Map();
+async function fetchWeather(lat, lon) {
+  const key = `${lat.toFixed(2)},${lon.toFixed(2)}`;
+  const hit = wxCache.get(key);
+  if (hit && Date.now() - hit.t < 15 * 60e3) return hit.data;
+  const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}` +
+    `&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,cloud_cover,wind_speed_10m,wind_direction_10m,wind_gusts_10m,surface_pressure,visibility` +
+    `&hourly=temperature_2m,wind_speed_10m,wind_direction_10m,wind_gusts_10m,precipitation_probability` +
+    `&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,precipitation_sum,wind_speed_10m_max,wind_gusts_10m_max,wind_direction_10m_dominant,sunrise,sunset` +
+    `&timezone=Asia%2FRiyadh&forecast_days=7&wind_speed_unit=kmh`;
+  const r = await fetch(url);
+  if (!r.ok) throw new Error("تعذّر جلب الطقس الآن");
+  const data = await r.json();
+  wxCache.set(key, { t: Date.now(), data });
+  return data;
+}
+function currentRegion() {
+  const name = store.get("region", "الرياض");
+  return REGIONS.find((r) => r[0] === name) ?? REGIONS[0];
+}
+function regionSelect(id, selected) {
+  return `<select class="sel" id="${id}" aria-label="المنطقة">${REGIONS.map(
+    (r) => `<option ${r[0] === selected ? "selected" : ""}>${esc(r[0])}</option>`
+  ).join("")}</select>`;
+}
+function dayScore(d) {
+  // Rough field-outing guide: calm wind, low gusts, low rain chance, comfortable temperature.
+  let s = 0;
+  if (d.wind <= 15) s += 2; else if (d.wind <= 25) s += 1;
+  if (d.gust <= 30) s += 1;
+  if (d.rain <= 20) s += 2; else if (d.rain <= 45) s += 1;
+  if (d.tmax <= 34 && d.tmin >= 5) s += 1;
+  if (s >= 5) return ["good", "مناسب"];
+  if (s >= 3) return ["ok", "متوسط"];
+  return ["bad", "غير مناسب"];
+}
+function migrationWindNote(dirDeg, month) {
+  const d = dirName(dirDeg);
+  const northerly = dirDeg >= 300 || dirDeg <= 60;
+  const southerly = dirDeg >= 120 && dirDeg <= 240;
+  if (month >= 7 && month <= 10) {
+    return northerly
+      ? `الرياح ${d} في موسم الهجرة الخريفية تساعد الطيور القادمة من الشمال، وغالباً يزيد العبور.`
+      : `الرياح ${d}: في الخريف تفضّل الطيور المهاجرة جنوباً الرياح الشمالية، فالعبور غالباً أقل.`;
+  }
+  if (month >= 1 && month <= 4) {
+    return southerly
+      ? `الرياح ${d} في هجرة الربيع تساعد الطيور العائدة شمالاً.`
+      : `الرياح ${d}: في الربيع تفضّل الطيور العائدة شمالاً الرياح الجنوبية.`;
+  }
+  return `الرياح ${d}. خارج ذروتي الهجرة (الربيع والخريف) يقل أثر الرياح على العبور.`;
+}
+
+async function renderWxMini(el) {
+  const [name, lat, lon] = currentRegion();
+  el.innerHTML = `<div class="row"><h3>طقس المقناص</h3>${regionSelect("wxMiniSel", name)}</div><div class="skel" style="height:120px"></div>`;
+  el.querySelector("#wxMiniSel").onchange = (e) => { store.set("region", e.target.value); renderWxMini(el); };
+  try {
+    const w = await fetchWeather(lat, lon);
+    const c = w.current;
+    const today = { wind: w.daily.wind_speed_10m_max[0], gust: w.daily.wind_gusts_10m_max[0], rain: w.daily.precipitation_probability_max[0] ?? 0, tmax: w.daily.temperature_2m_max[0], tmin: w.daily.temperature_2m_min[0] };
+    const [cls, label] = dayScore(today);
+    el.innerHTML = `
+      <div class="row"><h3>طقس المقناص</h3>${regionSelect("wxMiniSel", name)}</div>
+      <div class="row">
+        <div><div class="wx-temp">${Math.round(c.temperature_2m)}°</div><div class="muted">${esc(WMO[c.weather_code] ?? "")}</div></div>
+        <div style="text-align:end"><span class="score day ${cls}" style="padding:3px 12px;border-radius:999px">طلعة اليوم: ${label}</span></div>
+      </div>
+      <div class="wx-grid">
+        <div class="wx-cell"><small>الرياح</small><b>${Math.round(c.wind_speed_10m)} كم/س</b></div>
+        <div class="wx-cell"><small>الاتجاه</small><b><span class="arrow" style="transform:rotate(${c.wind_direction_10m + 180}deg)">↑</span> ${dirName(c.wind_direction_10m)}</b></div>
+        <div class="wx-cell"><small>الهبات</small><b>${Math.round(c.wind_gusts_10m)} كم/س</b></div>
+      </div>
+      <a class="link-more" href="#/weather">توقعات 7 أيام ←</a>`;
+    el.querySelector("#wxMiniSel").onchange = (e) => { store.set("region", e.target.value); renderWxMini(el); };
+  } catch (e) {
+    el.insertAdjacentHTML("beforeend", errorView(e));
+  }
+}
+
+// ---------- pages ----------
+async function pageHome(params) {
+  setActiveNav("home");
+  const data = await loadIndex();
+  const birds = data.birds;
+  const presentNow = birds.filter((b) => (b.presence?.[NOW_MONTH] ?? 0) >= 0.5 && b.status !== "vagrant").length;
+  const hunting = birds.filter((b) => b.hunting);
+  const families = [...new Map(birds.filter((b) => b.fam).map((b) => [b.fam, b.famAr || b.fam])).entries()]
+    .sort((a, b) => a[1].localeCompare(b[1], "ar"));
+
+  const state = {
+    q: params.get("q") ?? store.get("q", ""),
+    filter: store.get("filter", "all"),
+    fam: store.get("fam", "all"),
+    sort: store.get("sort", "common"),
+    shown: 60,
+  };
+
+  app.innerHTML = `
+    <section class="hero">
+      <div class="hero-main">
+        <h1>دليل طيور السعودية</h1>
+        <p>كل طير سُجّل في المملكة: اسمه العربي والدارج والإنجليزي والعلمي، وصوره، وموسم وجوده شهراً بشهر، وصوته، وآخر مشاهداته.</p>
+        <label class="search">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+          <input id="q" type="search" placeholder="ابحث: قميري، صفاري، Turtle Dove، Streptopelia…" value="${esc(state.q)}" autocomplete="off">
+        </label>
+        <div class="stats">
+          <div class="stat"><b>${fmt.format(birds.length)}</b><span>نوعاً مسجلاً في المملكة</span></div>
+          <div class="stat"><b>${fmt.format(hunting.length)}</b><span>من طيور المقناص</span></div>
+          <div class="stat"><b>${fmt.format(presentNow)}</b><span>موجود في ${MONTHS[NOW_MONTH]} غالباً</span></div>
+        </div>
+      </div>
+      <aside class="wx-mini" id="wxMini"></aside>
+    </section>
+
+    <section class="section">
+      <div class="section-head"><div><h2>طيور المقناص</h2><p>الأنواع اللي يعرفها أهل المقناص بأسمائها الدارجة.</p></div><a class="link-more" href="#/hunting">كلها ←</a></div>
+      <div class="scroller">${hunting.slice(0, 16).map(card).join("")}</div>
+    </section>
+
+    <section class="section" id="catalog">
+      <div class="section-head"><div><h2>كل الطيور</h2><p>الشريط الملوّن تحت كل طير يبين وجوده شهراً بشهر (يناير يميناً)، والمربع المحدد هو الشهر الحالي.</p></div></div>
+      <div class="filters">
+        ${[["all", "الكل"], ["hunting", "المقناص"], ["now", "موجود هذا الشهر"], ["resident", "مقيم"], ["winter", "شتوي"], ["summer", "صيفي"], ["passage", "عابر"], ["threat", "مهدد"]]
+          .map(([k, l]) => `<button class="chip ${state.filter === k ? "on" : ""}" data-f="${k}">${l}</button>`).join("")}
+        <select class="sel" id="fam" aria-label="الفصيلة"><option value="all">كل الفصائل</option>${families
+          .map(([k, l]) => `<option value="${esc(k)}" ${state.fam === k ? "selected" : ""}>${esc(l)}</option>`).join("")}</select>
+        <select class="sel" id="sort" aria-label="الترتيب">
+          <option value="common" ${state.sort === "common" ? "selected" : ""}>الأكثر تسجيلاً</option>
+          <option value="name" ${state.sort === "name" ? "selected" : ""}>أبجدياً</option>
+        </select>
+        <span class="count-note" id="countNote"></span>
+      </div>
+      <div class="grid" id="grid"></div>
+      <div class="more" id="more"></div>
+    </section>`;
+
+  renderWxMini(document.getElementById("wxMini"));
+
+  const grid = document.getElementById("grid");
+  const more = document.getElementById("more");
+  const countNote = document.getElementById("countNote");
+  const searchIndex = birds.map((b) => ({ b, t: norm([b.ar, b.local, b.en, b.sci, b.famAr, b.group].join(" ")) }));
+
+  function apply() {
+    const q = norm(state.q);
+    let list = searchIndex.filter((x) => !q || x.t.includes(q)).map((x) => x.b);
+    const f = state.filter;
+    if (f === "hunting") list = list.filter((b) => b.hunting);
+    else if (f === "now") list = list.filter((b) => (b.presence?.[NOW_MONTH] ?? 0) >= 0.5 && b.status !== "vagrant");
+    else if (f === "threat") list = list.filter((b) => ["NT", "VU", "EN", "CR"].includes(b.iucn));
+    else if (f !== "all") list = list.filter((b) => b.status === f);
+    if (state.fam !== "all") list = list.filter((b) => b.fam === state.fam);
+    if (state.sort === "name") list = [...list].sort((a, b) => displayName(a).localeCompare(displayName(b), "ar"));
+    countNote.textContent = `${fmt.format(list.length)} نوعاً`;
+    grid.innerHTML = list.length ? list.slice(0, state.shown).map(card).join("") : `<div class="empty" style="grid-column:1/-1">ما لقينا طيراً بهذا البحث.</div>`;
+    more.innerHTML = list.length > state.shown ? `<button class="btn ghost" id="moreBtn">عرض المزيد (${fmt.format(list.length - state.shown)})</button>` : "";
+    document.getElementById("moreBtn")?.addEventListener("click", () => { state.shown += 60; apply(); });
+  }
+  apply();
+
+  let t;
+  document.getElementById("q").addEventListener("input", (e) => {
+    clearTimeout(t);
+    t = setTimeout(() => {
+      state.q = e.target.value; state.shown = 60; store.set("q", state.q); apply();
+      if (state.q && window.scrollY < 300) document.getElementById("catalog").scrollIntoView({ behavior: "smooth" });
+    }, 180);
+  });
+  document.querySelectorAll("[data-f]").forEach((btn) => btn.addEventListener("click", () => {
+    state.filter = btn.dataset.f; state.shown = 60; store.set("filter", state.filter);
+    document.querySelectorAll("[data-f]").forEach((b) => b.classList.toggle("on", b === btn));
+    apply();
+  }));
+  document.getElementById("fam").onchange = (e) => { state.fam = e.target.value; state.shown = 60; store.set("fam", state.fam); apply(); };
+  document.getElementById("sort").onchange = (e) => { state.sort = e.target.value; store.set("sort", state.sort); apply(); };
+}
+
+async function pageBird(id) {
+  setActiveNav("");
+  const [b, index] = await Promise.all([loadDetail(id), loadIndex()]);
+  const st = STATUS[b.status] ?? STATUS.unknown;
+  document.title = `${displayName(b)} | شينز`;
+  const photos = b.photos ?? [];
+  const sameFamily = index.birds.filter((x) => x.fam === b.fam && x.id !== b.id).slice(0, 8);
+  const total = b.months.reduce((a, c) => a + c, 0);
+
+  const nameRows = [
+    ["الاسم العربي", esc(b.ar ?? "—") + (b.arAlt?.length ? `<div class="muted" style="font-size:.85rem">ويسمى أيضاً: ${b.arAlt.map(esc).join("، ")}</div>` : "")],
+    ["الاسم الدارج", b.local ? `<b style="color:var(--primary)">${esc(b.local)}</b>${b.localNote ? ` <span class="muted" style="font-size:.85rem">(${esc(b.localNote)})</span>` : ""}` : `<span class="muted">غير مسجل بعد</span>`],
+    ["بالإنجليزي", `<span class="en">${esc(b.en ?? "—")}</span>`],
+    ["الاسم العلمي", `<span class="latin">${esc(b.sci)}</span>${b.inatName && b.inatName !== b.sci ? ` <span class="muted latin" style="font-size:.85rem">(${esc(b.inatName)})</span>` : ""}`],
+    ["الفصيلة", `${esc(b.famAr ?? "")} <span class="latin muted">${esc(b.fam ?? "")}</span>`],
+    ["الرتبة", `${esc(b.ordAr ?? "")} <span class="latin muted">${esc(b.ord ?? "")}</span>`],
+  ];
+
+  app.innerHTML = `
+    <div class="crumbs"><a href="#/">الطيور</a> / ${b.famAr ? `${esc(b.famAr)} / ` : ""}${esc(displayName(b))}</div>
+    <div class="bird-top">
+      <div class="gallery">
+        <div class="main-ph" id="mainPh">${photos[0] ? `<img src="${esc(photo(photos[0].u, "large"))}" alt="${esc(displayName(b))}">` : `<div class="empty" style="height:100%;display:grid;place-items:center">لا توجد صورة</div>`}</div>
+        <div class="credit" id="credit">${photos[0] ? esc(photos[0].a) : ""}</div>
+        ${photos.length > 1 ? `<div class="thumbs">${photos.map((p, i) => `<button class="${i === 0 ? "on" : ""}" data-i="${i}" aria-label="صورة ${i + 1}"><img loading="lazy" src="${esc(photo(p.u, "square"))}" alt=""></button>`).join("")}</div>` : ""}
+      </div>
+      <div class="names">
+        <h1>${esc(displayName(b))}</h1>
+        ${b.local && b.local !== b.ar ? `<div class="local-big">${esc(b.local)}</div>` : ""}
+        <div class="latin muted" style="font-size:1.1rem">${esc(b.sci)}</div>
+        <div class="badges">
+          ${b.hunting ? `<span class="badge hunt">من طيور المقناص${b.group ? ` · ${esc(b.group)}` : ""}</span>` : b.group ? `<span class="badge">${esc(b.group)}</span>` : ""}
+          <span class="badge" title="${esc(st.hint)}">${st.icon} ${st.label}</span>
+          ${b.iucn ? `<span class="badge ${["VU", "EN", "CR"].includes(b.iucn) ? "warn" : ""}">القائمة الحمراء: ${esc(IUCN[b.iucn] ?? b.iucn)}</span>` : ""}
+        </div>
+        <div class="name-table">${nameRows.map(([k, v]) => `<div><span class="k">${k}</span><span>${v}</span></div>`).join("")}</div>
+        ${b.localNote && /محمي|ممنوع|مقيد/.test(b.localNote) ? `<div class="note">⚠ ${esc(b.localNote)}</div>` : ""}
+      </div>
+    </div>
+
+    <div class="two-col">
+      <div class="panel">
+        <h3>متى يكون في السعودية؟</h3>
+        <p class="muted" style="margin:4px 0 0;font-size:.88rem">${esc(st.hint)}. التقدير مبني على ${fmt.format(total)} سجلاً في GBIF وeBird، بعد موازنته بعدد الراصدين في كل شهر.</p>
+        <div class="cal">${b.presence.map((p, i) => `<div class="col ${i === NOW_MONTH ? "now" : ""}" title="${MONTHS[i]}: ${fmt.format(b.months[i])} سجلاً"><div class="bar" style="height:${Math.max(3, p * 100)}%;background:${i === NOW_MONTH ? "" : rampColor(Math.max(p, 0.3))}"></div><span class="lbl">${MONTHS_SHORT[i]}</span></div>`).join("")}</div>
+        <div class="legend"><span>الأعمدة الأطول تعني فرصة أكبر لوجوده</span><span>الشهر الحالي باللون الداكن</span></div>
+      </div>
+      <div class="panel">
+        <h3>نبذة</h3>
+        ${b.summary ? `<p class="summary">${esc(b.summary)}</p>` : b.summaryEn ? `<p class="summary en" dir="ltr" style="text-align:left">${esc(b.summaryEn)}</p>` : `<p class="muted">لا توجد نبذة عربية لهذا الطير بعد.</p>`}
+        <div class="links">
+          ${b.arWiki ? `<a href="${esc(b.arWiki)}" target="_blank" rel="noopener">ويكيبيديا العربية</a>` : ""}
+          ${b.wiki ? `<a href="${esc(b.wiki)}" target="_blank" rel="noopener">Wikipedia</a>` : ""}
+          ${b.ebird ? `<a href="https://ebird.org/species/${esc(b.ebird)}/SA" target="_blank" rel="noopener">eBird في السعودية</a>` : ""}
+          ${b.ebird ? `<a href="https://birdsoftheworld.org/bow/species/${esc(b.ebird)}/cur/introduction" target="_blank" rel="noopener">Birds of the World</a>` : ""}
+          ${b.inat ? `<a href="https://www.inaturalist.org/taxa/${b.inat}" target="_blank" rel="noopener">iNaturalist</a>` : ""}
+          <a href="https://www.gbif.org/species/${b.id}" target="_blank" rel="noopener">GBIF</a>
+          <a href="https://xeno-canto.org/explore?query=${encodeURIComponent(b.inatName || b.sci)}" target="_blank" rel="noopener">xeno-canto</a>
+        </div>
+      </div>
+    </div>
+
+    <div class="two-col">
+      <div class="panel">
+        <h3>الصوت</h3>
+        ${b.sounds?.length ? b.sounds.map((s) => `
+          <div class="sound">
+            <div><b>${esc(soundType(s.type))}</b> <span class="muted">· ${esc(s.cnt ?? "")}${s.len ? ` · ${esc(s.len)}` : ""}</span></div>
+            <audio controls preload="none" src="${esc(s.file)}"></audio>
+            <div class="meta">تسجيل: ${esc(s.rec)} · <a href="${esc(s.url)}" target="_blank" rel="noopener">XC${esc(s.id)}</a> · <a href="${esc(s.lic?.startsWith("//") ? "https:" + s.lic : s.lic)}" target="_blank" rel="noopener">الرخصة</a></div>
+          </div>`).join("") : `<p class="muted">لا توجد تسجيلات محفوظة بعد. تقدر تسمعه مباشرة في <a href="https://xeno-canto.org/explore?query=${encodeURIComponent(b.inatName || b.sci)}" target="_blank" rel="noopener">xeno-canto</a>.</p>`}
+        <p class="muted" style="font-size:.8rem;margin-bottom:0">للتعرّف والتعلّم فقط. استخدام الأصوات أو أجهزة النداء لجذب الطيور في الصيد ممنوع نظاماً.</p>
+      </div>
+      <div class="panel">
+        <h3>آخر المشاهدات في المملكة</h3>
+        <div id="birdSightings"><div class="skel" style="height:80px"></div></div>
+      </div>
+    </div>
+
+    ${sameFamily.length ? `<section class="section"><div class="section-head"><h2>من نفس الفصيلة</h2></div><div class="scroller">${sameFamily.map(card).join("")}</div></section>` : ""}`;
+
+  document.querySelectorAll(".thumbs button").forEach((btn) => btn.addEventListener("click", () => {
+    const p = photos[Number(btn.dataset.i)];
+    document.getElementById("mainPh").innerHTML = `<img src="${esc(photo(p.u, "large"))}" alt="${esc(displayName(b))}">`;
+    document.getElementById("credit").textContent = p.a;
+    document.querySelectorAll(".thumbs button").forEach((x) => x.classList.toggle("on", x === btn));
+  }));
+  window.scrollTo(0, 0);
+
+  const s = await loadSightings();
+  const box = document.getElementById("birdSightings");
+  if (!box) return;
+  if (!s) { box.innerHTML = `<p class="muted">المشاهدات غير متاحة حالياً.</p>`; return; }
+  const sci = new Set([b.sci, b.inatName].filter(Boolean));
+  const obs = (b.ebird && s.bySpecies?.[b.ebird]) || [...s.latest, ...s.notable].filter((o) => o.code === b.ebird || sci.has(o.sci));
+  const uniq = [...new Map(obs.map((o) => [o.sub + o.code, o])).values()].sort((a, c) => c.dt.localeCompare(a.dt)).slice(0, 8);
+  box.innerHTML = uniq.length ? `<ul class="list">${uniq.map(sightingRow).join("")}</ul><p class="muted" style="font-size:.8rem">من eBird خلال آخر 30 يوماً · حُدّثت ${timeAgo(s.generatedAt)}</p>`
+    : `<p class="muted">ما سُجّلت له مشاهدات في eBird خلال آخر 30 يوماً.</p>`;
+}
+function soundType(t) {
+  const x = String(t ?? "").toLowerCase();
+  if (x.includes("song")) return "تغريد";
+  if (x.includes("flight")) return "نداء طيران";
+  if (x.includes("alarm")) return "نداء إنذار";
+  if (x.includes("call")) return "نداء";
+  return t || "تسجيل";
+}
+function sightingRow(o, bird) {
+  const map = o.lat ? `https://www.google.com/maps?q=${o.lat},${o.lng}` : null;
+  return `<li>
+    ${bird ? `<a class="thumb" href="#/bird/${bird.id}">${bird.ph ? `<img loading="lazy" src="${esc(photo(bird.ph, "square"))}" alt="">` : ""}</a>` : ""}
+    <div class="grow">
+      ${bird ? `<a class="t" href="#/bird/${bird.id}">${esc(bird.local || displayName(bird))}</a>` : ""}
+      <div class="${bird ? "s" : "t"}">${esc(o.loc)}</div>
+      <div class="s">${dateAr(o.dt)}${o.n ? ` · العدد: ${fmt.format(o.n)}` : ""}</div>
+    </div>
+    <div class="side">${map ? `<a href="${map}" target="_blank" rel="noopener">الخريطة</a><br>` : ""}<a href="https://ebird.org/checklist/${esc(o.sub)}" target="_blank" rel="noopener">السجل</a></div>
+  </li>`;
+}
+
+async function pageHunting() {
+  setActiveNav("hunting");
+  const data = await loadIndex();
+  const hunting = data.birds.filter((b) => b.hunting);
+  const groups = new Map();
+  for (const b of hunting) {
+    const g = b.group || "أخرى";
+    if (!groups.has(g)) groups.set(g, []);
+    groups.get(g).push(b);
+  }
+  app.innerHTML = `
+    <div class="section-head"><div><h1>طيور المقناص</h1><p>الأنواع المعروفة عند أهل المقناص في المملكة، مرتبة حسب المجموعة، ولكل طير موسم وجوده.</p></div></div>
+    <div class="note" style="margin-bottom:20px">الصيد في المملكة يحتاج ترخيصاً من المركز الوطني لتنمية الحياة الفطرية، وله مواسم ومناطق محددة. يُمنع صيد الأنواع المحمية والصيد بالشباك وأجهزة النداء الإلكترونية. تحقق من الأنظمة المحدثة قبل أي طلعة.</div>
+    ${[...groups.entries()].map(([g, list]) => `
+      <section class="section">
+        <div class="section-head"><h2>${esc(g)}</h2><span class="muted">${fmt.format(list.length)}</span></div>
+        <div class="grid">${list.map(card).join("")}</div>
+      </section>`).join("")}
+    <p class="muted" style="margin-top:28px">الأسماء الدارجة تختلف من منطقة لمنطقة. إذا عندك تصحيح أو اسم ناقص، عدّله في ملف <span class="en">data/local-names.json</span> في المستودع.</p>`;
+}
+
+async function pageMigration(params) {
+  setActiveNav("migration");
+  const data = await loadIndex();
+  const m = Math.min(11, Math.max(0, Number(params.get("m") ?? NOW_MONTH)));
+  const present = data.birds.filter((b) => (b.presence?.[m] ?? 0) >= 0.5 && b.status !== "vagrant" && b.n >= 20);
+  const order = ["passage", "winter", "summer", "resident", "unknown"];
+  const titles = { passage: "عابرون هذا الشهر", winter: "زوار الشتاء", summer: "زوار الصيف", resident: "المقيمون", unknown: "آخرون" };
+  const arriving = data.birds.filter((b) => b.status !== "resident" && b.status !== "vagrant" && b.n >= 20 &&
+    (b.presence?.[m] ?? 0) >= 0.5 && (b.presence?.[(m + 11) % 12] ?? 0) < 0.3);
+  app.innerHTML = `
+    <div class="section-head"><div><h1>هجرة ${MONTHS[m]}</h1><p>الطيور اللي فرصة وجودها في المملكة عالية في هذا الشهر، حسب سجلات GBIF وeBird. هذا تقدير مبني على السجلات، وليس رصداً لحظياً.</p></div></div>
+    <div class="month-pick">${MONTHS.map((n, i) => `<a class="chip ${i === m ? "on" : ""}" href="#/migration?m=${i}">${n}</a>`).join("")}</div>
+    ${arriving.length ? `<section class="section"><div class="section-head"><div><h2>يبدأ وصولها في ${MONTHS[m]}</h2><p>كانت قليلة الشهر الماضي وتزيد هذا الشهر.</p></div></div><div class="scroller">${arriving.map(card).join("")}</div></section>` : ""}
+    ${order.map((s) => {
+      const list = present.filter((b) => b.status === s).sort((a, b) => (b.presence[m] - a.presence[m]) || (b.n - a.n));
+      return list.length ? `<section class="section"><div class="section-head"><h2>${titles[s]}</h2><span class="muted">${fmt.format(list.length)}</span></div><div class="grid">${list.slice(0, 48).map(card).join("")}</div></section>` : "";
+    }).join("")}`;
+  window.scrollTo(0, 0);
+}
+
+async function pageWeather() {
+  setActiveNav("weather");
+  const [name, lat, lon] = currentRegion();
+  app.innerHTML = `
+    <div class="wx-head"><div><h1>طقس المقناص</h1><p class="muted" style="margin:4px 0 0">توقعات مباشرة من Open-Meteo لمناطق المملكة، مع مؤشر إرشادي للطلعة وأثر الرياح على الهجرة.</p></div>${regionSelect("wxSel", name)}</div>
+    <div id="wxBody"><div class="skel" style="height:300px"></div></div>`;
+  document.getElementById("wxSel").onchange = (e) => { store.set("region", e.target.value); pageWeather(); };
+  const body = document.getElementById("wxBody");
+  try {
+    const w = await fetchWeather(lat, lon);
+    const c = w.current;
+    const d = w.daily;
+    const days = d.time.map((t, i) => ({
+      t, code: d.weather_code[i], tmax: d.temperature_2m_max[i], tmin: d.temperature_2m_min[i],
+      rain: d.precipitation_probability_max[i] ?? 0, rainSum: d.precipitation_sum[i], wind: d.wind_speed_10m_max[i],
+      gust: d.wind_gusts_10m_max[i], dir: d.wind_direction_10m_dominant[i], sunrise: d.sunrise[i], sunset: d.sunset[i],
+    }));
+    const hours = w.hourly.time.map((t, i) => ({ t, temp: w.hourly.temperature_2m[i], wind: w.hourly.wind_speed_10m[i], gust: w.hourly.wind_gusts_10m[i], dir: w.hourly.wind_direction_10m[i], rain: w.hourly.precipitation_probability[i] }));
+    const nowIdx = Math.max(0, hours.findIndex((h) => h.t >= c.time.slice(0, 13)));
+    const next = hours.slice(nowIdx, nowIdx + 24);
+    const hm = (s) => s.slice(11, 16);
+    body.innerHTML = `
+      <div class="panel">
+        <div class="wx-now">
+          <div><div class="big">${Math.round(c.temperature_2m)}°</div><div class="muted">${esc(WMO[c.weather_code] ?? "")} · الإحساس ${Math.round(c.apparent_temperature)}°</div></div>
+          <div class="kpis">
+            <div class="kpi"><small>سرعة الرياح</small><b>${Math.round(c.wind_speed_10m)} كم/س</b></div>
+            <div class="kpi"><small>اتجاه الرياح</small><b><span class="arrow" style="transform:rotate(${c.wind_direction_10m + 180}deg)">↑</span> ${dirName(c.wind_direction_10m)}</b></div>
+            <div class="kpi"><small>الهبات</small><b>${Math.round(c.wind_gusts_10m)} كم/س</b></div>
+            <div class="kpi"><small>الرطوبة</small><b>${Math.round(c.relative_humidity_2m)}٪</b></div>
+            <div class="kpi"><small>الغيوم</small><b>${Math.round(c.cloud_cover)}٪</b></div>
+            <div class="kpi"><small>الضغط</small><b>${Math.round(c.surface_pressure)} هـ.ب</b></div>
+            <div class="kpi"><small>الشروق</small><b>${hm(days[0].sunrise)}</b></div>
+            <div class="kpi"><small>الغروب</small><b>${hm(days[0].sunset)}</b></div>
+          </div>
+        </div>
+        <p class="note" style="margin:16px 0 0">🧭 ${esc(migrationWindNote(c.wind_direction_10m, NOW_MONTH))}</p>
+      </div>
+
+      <div class="panel">
+        <h3>الأيام السبعة القادمة</h3>
+        <div class="days" style="margin-top:12px">${days.map((x, i) => {
+          const [cls, label] = dayScore(x);
+          const dn = i === 0 ? "اليوم" : i === 1 ? "بكرة" : new Date(x.t).toLocaleDateString("ar-SA-u-ca-gregory-nu-latn", { weekday: "long" });
+          return `<div class="day">
+            <span class="dname">${dn}</span>
+            <span class="muted">${esc(WMO[x.code] ?? "")}</span>
+            <span><b>${Math.round(x.tmax)}°</b> / ${Math.round(x.tmin)}°</span>
+            <span>رياح ${Math.round(x.wind)} كم/س · ${dirName(x.dir)}</span>
+            <span class="muted">هبات ${Math.round(x.gust)} · مطر ${x.rain}٪</span>
+            <span class="score ${cls}">${label}</span>
+          </div>`;
+        }).join("")}</div>
+        <p class="muted" style="font-size:.8rem;margin-bottom:0">مؤشر الطلعة إرشادي فقط: يحسب هدوء الرياح وقلة احتمال المطر واعتدال الحرارة.</p>
+      </div>
+
+      <div class="panel">
+        <h3>الرياح والحرارة خلال 24 ساعة</h3>
+        ${hourChart(next)}
+        <div class="legend"><span style="color:var(--primary)">━ الرياح (كم/س)</span><span style="color:var(--info)">┅ الهبات</span><span>الأسهم: اتجاه هبوب الرياح</span></div>
+      </div>`;
+  } catch (e) {
+    body.innerHTML = errorView(e);
+  }
+}
+function hourChart(hours) {
+  if (!hours.length) return "";
+  const W = 720, H = 220, pad = 30;
+  const maxV = Math.max(20, ...hours.map((h) => h.gust)) * 1.1;
+  const x = (i) => W - pad - (i * (W - 2 * pad)) / (hours.length - 1); // RTL: time flows right to left
+  const y = (v) => H - pad - (v / maxV) * (H - 2 * pad - 20);
+  const line = (k) => hours.map((h, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(h[k]).toFixed(1)}`).join(" ");
+  return `<svg class="chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="الرياح خلال 24 ساعة">
+    ${[0, 0.5, 1].map((f) => `<line x1="${pad}" x2="${W - pad}" y1="${y(maxV * f / 1.1)}" y2="${y(maxV * f / 1.1)}" stroke="var(--border)" stroke-width="1"/><text x="${W - 4}" y="${y(maxV * f / 1.1) + 4}" text-anchor="end">${Math.round(maxV * f / 1.1)}</text>`).join("")}
+    <path d="${line("gust")}" fill="none" stroke="var(--info)" stroke-width="1.6" stroke-dasharray="4 3"/>
+    <path d="${line("wind")}" fill="none" stroke="var(--primary)" stroke-width="2.4"/>
+    ${hours.map((h, i) => (i % 3 === 0 ? `<g transform="translate(${x(i)},${pad - 8}) rotate(${h.dir + 180})"><path d="M0,-7 L4,4 L0,1 L-4,4 Z" fill="var(--fg)"/></g><text x="${x(i)}" y="${H - 8}" text-anchor="middle">${h.t.slice(11, 13)}:00</text><text x="${x(i)}" y="${pad + 14}" text-anchor="middle">${Math.round(h.temp)}°</text>` : "")).join("")}
+  </svg>`;
+}
+
+async function pageSightings(params) {
+  setActiveNav("sightings");
+  const [data, s] = await Promise.all([loadIndex(), loadSightings()]);
+  if (!s) {
+    app.innerHTML = `<h1>المشاهدات الحديثة</h1><div class="empty" style="margin-top:16px">المشاهدات تتحدث تلقائياً كل 3 ساعات من eBird، وما وصلت أول دفعة بعد.</div>`;
+    return;
+  }
+  const bySci = new Map();
+  for (const b of data.birds) { bySci.set(b.sci, b); if (b.eb) bySci.set(b.eb, b); }
+  const huntingOnly = params.get("h") === "1";
+  const rows = s.latest
+    .map((o) => ({ o, b: bySci.get(o.code) || bySci.get(o.sci) }))
+    .filter((r) => !huntingOnly || r.b?.hunting)
+    .sort((a, b) => b.o.dt.localeCompare(a.o.dt));
+  const notable = s.notable
+    .map((o) => ({ o, b: bySci.get(o.code) || bySci.get(o.sci) }))
+    .sort((a, b) => b.o.dt.localeCompare(a.o.dt));
+  const uniqNotable = [...new Map(notable.map((r) => [r.o.code + r.o.loc, r])).values()].slice(0, 30);
+  app.innerHTML = `
+    <div class="section-head"><div><h1>المشاهدات الحديثة</h1><p>آخر رصد لكل نوع في المملكة خلال 30 يوماً، من سجلات راصدي eBird. حُدّثت ${timeAgo(s.generatedAt)}.</p></div></div>
+    <div class="filters">
+      <a class="chip ${huntingOnly ? "" : "on"}" href="#/sightings">كل الطيور (${fmt.format(s.latest.length)})</a>
+      <a class="chip ${huntingOnly ? "on" : ""}" href="#/sightings?h=1">طيور المقناص فقط</a>
+    </div>
+    <div class="two-col" style="margin-top:0">
+      <div class="panel"><h3>آخر مشاهدة لكل نوع</h3>
+        ${rows.length ? `<ul class="list">${rows.slice(0, 120).map((r) => sightingRow(r.o, r.b ?? { id: "", local: null, ar: r.o.en, sci: r.o.sci })).join("")}</ul>` : `<p class="muted">لا توجد مشاهدات.</p>`}
+      </div>
+      <div class="panel"><h3>مشاهدات لافتة</h3><p class="muted" style="font-size:.85rem;margin-top:4px">أنواع نادرة أو في غير موسمها حسب eBird.</p>
+        ${uniqNotable.length ? `<ul class="list">${uniqNotable.map((r) => sightingRow(r.o, r.b ?? { id: "", local: null, ar: r.o.en, sci: r.o.sci })).join("")}</ul>` : `<p class="muted">لا شيء لافت مؤخراً.</p>`}
+      </div>
+    </div>`;
+}
+
+// ---------- router ----------
+async function route() {
+  const raw = location.hash.replace(/^#\/?/, "");
+  const [path, qs] = raw.split("?");
+  const params = new URLSearchParams(qs ?? "");
+  const parts = path.split("/").filter(Boolean);
+  document.title = "شينز | دليل طيور السعودية";
+  try {
+    if (parts[0] === "bird" && parts[1]) await pageBird(parts[1]);
+    else if (parts[0] === "hunting") await pageHunting();
+    else if (parts[0] === "migration") await pageMigration(params);
+    else if (parts[0] === "weather") await pageWeather();
+    else if (parts[0] === "sightings") await pageSightings(params);
+    else await pageHome(params);
+  } catch (e) {
+    app.innerHTML = errorView(e);
+  }
+}
+window.addEventListener("hashchange", () => { route(); if (!location.hash.startsWith("#/bird")) window.scrollTo(0, 0); });
+route();
+
+loadIndex().then((d) => {
+  const el = document.getElementById("dataStamp");
+  if (el && d.generatedAt) el.textContent = `آخر تحديث لبيانات الطيور: ${new Date(d.generatedAt).toLocaleDateString("ar-SA-u-ca-gregory-nu-latn", { day: "numeric", month: "long", year: "numeric" })}`;
+}).catch(() => {});
+
+document.getElementById("themeBtn").addEventListener("click", () => {
+  const root = document.documentElement;
+  const dark = root.dataset.theme ? root.dataset.theme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+  root.dataset.theme = dark ? "light" : "dark";
+  store.set("theme", root.dataset.theme);
+});

@@ -1,0 +1,74 @@
+name: Update data and deploy site
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "0 */3 * * *"   # sightings every 3 hours
+    - cron: "23 0 * * 1"    # full bird data every Monday 03:23 Riyadh
+  workflow_dispatch:
+    inputs:
+      full:
+        description: "Run the full bird data sync"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: site
+  cancel-in-progress: false
+
+jobs:
+  build-deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Decide what to sync
+        id: plan
+        run: |
+          full=false
+          if [ ! -f data/birds.json ]; then full=true; fi
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.full }}" = "true" ]; then full=true; fi
+          if [ "${{ github.event.schedule }}" = "23 0 * * 1" ]; then full=true; fi
+          if git log -1 --pretty=%B | grep -q "\[full-sync\]"; then full=true; fi
+          echo "full=$full" >> "$GITHUB_OUTPUT"
+
+      - name: Full bird data sync
+        if: steps.plan.outputs.full == 'true'
+        env:
+          EBIRD_API_KEY: ${{ secrets.EBIRD_API_KEY }}
+          XENO_CANTO_API_KEY: ${{ secrets.XENO_CANTO_API_KEY }}
+        run: node scripts/sync-birds.mjs
+
+      - name: Recent sightings (eBird)
+        continue-on-error: true
+        env:
+          EBIRD_API_KEY: ${{ secrets.EBIRD_API_KEY }}
+        run: node scripts/sync-sightings.mjs
+
+      - name: Save data to the repository
+        run: |
+          git config user.name "sheeens-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data
+          if git diff --cached --quiet; then echo "no data changes"; else git commit -m "Update bird data [skip ci]" && git push; fi
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: .
+      - id: deploy
+        uses: actions/deploy-pages@v4
