@@ -19,12 +19,11 @@ function loginPage(error) {
   return `<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex, nofollow">
 <title>شينز | دخول</title>
-<link href="https://fonts.googleapis.com/css2?family=Reem+Kufi:wght@600&family=IBM+Plex+Sans+Arabic:wght@400;600&display=swap" rel="stylesheet">
 <style>
-body{margin:0;min-height:100vh;display:grid;place-items:center;background:#f4ede0;color:#231d17;font-family:"IBM Plex Sans Arabic",system-ui,sans-serif}
+body{margin:0;min-height:100vh;display:grid;place-items:center;background:#f4ede0;color:#231d17;font-family:-apple-system,BlinkMacSystemFont,"SF Arabic","Segoe UI","Noto Sans Arabic",Tahoma,system-ui,sans-serif}
 @media (prefers-color-scheme:dark){body{background:#15171c;color:#efe6d6}.box{background:#20242c!important;border-color:#343944!important}input{background:#15171c!important;color:#efe6d6!important;border-color:#343944!important}}
 .box{width:min(360px,90vw);background:#fbf7ef;border:1px solid #d6c9b2;border-radius:14px;padding:28px;text-align:center}
-h1{font-family:"Reem Kufi",sans-serif;margin:8px 0 4px;font-size:1.8rem}
+h1{font-weight:700;margin:8px 0 4px;font-size:1.8rem}
 p{margin:0 0 18px;color:#6e6253}
 input{width:100%;box-sizing:border-box;padding:12px 14px;border:1px solid #d6c9b2;border-radius:999px;font:inherit;text-align:center;font-size:1.1rem;background:#f4ede0;letter-spacing:.15em}
 button{margin-top:12px;width:100%;padding:11px;border:0;border-radius:999px;background:#b4532a;color:#fff8f0;font:inherit;font-weight:600;cursor:pointer}
