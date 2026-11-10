@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>شينز | دليل طيور السعودية</title>
+  <meta name="description" content="دليل مرجعي عربي لطيور المملكة العربية السعودية: الأسماء العربية والدارجة والعلمية، الصور، مواسم الهجرة، الأصوات، المشاهدات الحديثة، وطقس المقناص.">
+  <meta property="og:title" content="شينز | دليل طيور السعودية">
+  <meta property="og:description" content="أكثر من 500 نوع من طيور السعودية بأسمائها وصورها ومواسم هجرتها، مع طقس المقناص والمشاهدات الحديثة.">
+  <meta name="theme-color" content="#b4532a">
+  <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Reem+Kufi:wght@500;600;700&family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&family=Newsreader:ital,opsz,wght@1,6..72,400;1,6..72,500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/style.css">
+  <script>
+    try { var t = localStorage.getItem("theme"); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
+  </script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="wrap topbar-inner">
+      <a class="brand" href="#/">
+        <img src="assets/icon.svg" alt="" width="34" height="34">
+        <span><b>شينز</b><small>دليل طيور السعودية</small></span>
+      </a>
+      <nav class="nav" id="nav">
+        <a href="#/" data-nav="home">الطيور</a>
+        <a href="#/hunting" data-nav="hunting">المقناص</a>
+        <a href="#/migration" data-nav="migration">هجرة الشهر</a>
+        <a href="#/weather" data-nav="weather">الطقس</a>
+        <a href="#/sightings" data-nav="sightings">المشاهدات</a>
+      </nav>
+      <button class="icon-btn" id="themeBtn" aria-label="تبديل الوضع الليلي" title="الوضع الليلي">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <main id="app" class="wrap" aria-live="polite">
+    <div class="loading">جاري التحميل…</div>
+  </main>
+
+  <footer class="footer">
+    <div class="wrap">
+      <p><b>شينز</b>: دليل مرجعي مجاني لطيور المملكة العربية السعودية.</p>
+      <p class="muted">
+        البيانات من
+        <a href="https://www.gbif.org" target="_blank" rel="noopener">GBIF</a> (وتشمل سجلات eBird)،
+        و<a href="https://www.inaturalist.org" target="_blank" rel="noopener">iNaturalist</a>،
+        و<a href="https://ebird.org" target="_blank" rel="noopener">eBird</a> من مختبر كورنيل،
+        و<a href="https://xeno-canto.org" target="_blank" rel="noopener">xeno-canto</a>،
+        و<a href="https://www.wikidata.org" target="_blank" rel="noopener">ويكي بيانات</a> وويكيبيديا،
+        والطقس من <a href="https://open-meteo.com" target="_blank" rel="noopener">Open-Meteo</a>.
+        حقوق الصور والأصوات لأصحابها حسب الرخصة المذكورة مع كل منها.
+      </p>
+      <p class="muted">الموقع مرجع معرفي ولا يغني عن أنظمة <a href="https://www.ncw.gov.sa" target="_blank" rel="noopener">المركز الوطني لتنمية الحياة الفطرية</a>: الصيد يحتاج ترخيصاً، ويُمنع صيد الأنواع المحمية وأجهزة النداء الإلكترونية.</p>
+      <p class="muted" id="dataStamp"></p>
+    </div>
+  </footer>
+
+  <script type="module" src="assets/app.js"></script>
+</body>
+</html>
