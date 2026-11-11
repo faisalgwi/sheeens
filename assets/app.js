@@ -102,7 +102,7 @@ function card(b) {
   </a>`;
 }
 function setActiveNav(name) {
-  document.querySelectorAll("#nav a").forEach((a) => a.classList.toggle("active", a.dataset.nav === name));
+  document.querySelectorAll("[data-nav]").forEach((a) => a.classList.toggle("active", a.dataset.nav === name));
 }
 const errorView = (e) => `<div class="error-box">${esc(e.message || e)}</div>`;
 const timeAgo = (d) => {
