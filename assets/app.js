@@ -67,6 +67,8 @@ async function loadDetail(id) {
 const norm = (s) => String(s ?? "").toLowerCase()
   .replace(/[ً-ْـ]/g, "").replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").replace(/ى/g, "ي").trim();
 const displayName = (b) => b.ar || b.en || b.sci;
+const favs = new Set(store.get("favs", []));
+const toggleFav = (id) => { favs.has(id) ? favs.delete(id) : favs.add(id); store.set("favs", [...favs]); };
 
 // ---------- small views ----------
 function strip(presence) {
@@ -181,7 +183,7 @@ async function renderWxMini(el) {
       <div class="row"><h3>طقس المقناص</h3>${regionSelect("wxMiniSel", name)}</div>
       <div class="row">
         <div><div class="wx-temp">${Math.round(c.temperature_2m)}°</div><div class="muted">${esc(WMO[c.weather_code] ?? "")}</div></div>
-        <div style="text-align:end"><span class="score day ${cls}" style="padding:3px 12px;border-radius:999px">طلعة اليوم: ${label}</span></div>
+        <div style="text-align:end"><span class="score ${cls}" style="padding:3px 12px;border-radius:999px;font-weight:700;font-size:.85rem">طلعة اليوم: ${label}</span></div>
       </div>
       <div class="wx-grid">
         <div class="wx-cell"><small>الرياح</small><b>${Math.round(c.wind_speed_10m)} كم/س</b></div>
@@ -239,7 +241,7 @@ async function pageHome(params) {
     <section class="section" id="catalog">
       <div class="section-head"><div><h2>كل الطيور</h2><p>الشريط الملوّن تحت كل طير يبين وجوده شهراً بشهر (يناير يميناً)، والمربع المحدد هو الشهر الحالي.</p></div></div>
       <div class="filters">
-        ${[["all", "الكل"], ["hunting", "المقناص"], ["now", "موجود هذا الشهر"], ["resident", "مقيم"], ["winter", "شتوي"], ["summer", "صيفي"], ["passage", "عابر"], ["threat", "مهدد"]]
+        ${[["all", "الكل"], ["fav", "★ مفضلتي"], ["hunting", "المقناص"], ["now", "موجود هذا الشهر"], ["resident", "مقيم"], ["winter", "شتوي"], ["summer", "صيفي"], ["passage", "عابر"], ["threat", "مهدد"]]
           .map(([k, l]) => `<button class="chip ${state.filter === k ? "on" : ""}" data-f="${k}">${l}</button>`).join("")}
         <select class="sel" id="fam" aria-label="الفصيلة"><option value="all">كل الفصائل</option>${families
           .map(([k, l]) => `<option value="${esc(k)}" ${state.fam === k ? "selected" : ""}>${esc(l)}</option>`).join("")}</select>
@@ -265,13 +267,14 @@ async function pageHome(params) {
     let list = searchIndex.filter((x) => !q || x.t.includes(q)).map((x) => x.b);
     const f = state.filter;
     if (f === "hunting") list = list.filter((b) => b.hunting);
+    else if (f === "fav") list = list.filter((b) => favs.has(b.id));
     else if (f === "now") list = list.filter((b) => (b.presence?.[NOW_MONTH] ?? 0) >= 0.5 && b.status !== "vagrant");
     else if (f === "threat") list = list.filter((b) => ["NT", "VU", "EN", "CR"].includes(b.iucn));
     else if (f !== "all") list = list.filter((b) => b.status === f);
     if (state.fam !== "all") list = list.filter((b) => b.fam === state.fam);
     if (state.sort === "name") list = [...list].sort((a, b) => displayName(a).localeCompare(displayName(b), "ar"));
     countNote.textContent = `${fmt.format(list.length)} نوعاً`;
-    grid.innerHTML = list.length ? list.slice(0, state.shown).map(card).join("") : `<div class="empty" style="grid-column:1/-1">ما لقينا طيراً بهذا البحث.</div>`;
+    grid.innerHTML = list.length ? list.slice(0, state.shown).map(card).join("") : `<div class="empty" style="grid-column:1/-1">${state.filter === "fav" && !state.q ? "ما أضفت طيوراً للمفضلة بعد. افتح أي طير واضغط ☆." : "ما لقينا طيراً بهذا البحث."}</div>`;
     more.innerHTML = list.length > state.shown ? `<button class="btn ghost" id="moreBtn">عرض المزيد (${fmt.format(list.length - state.shown)})</button>` : "";
     document.getElementById("moreBtn")?.addEventListener("click", () => { state.shown += 60; apply(); });
   }
@@ -321,7 +324,7 @@ async function pageBird(id) {
         ${photos.length > 1 ? `<div class="thumbs">${photos.map((p, i) => `<button class="${i === 0 ? "on" : ""}" data-i="${i}" aria-label="صورة ${i + 1}"><img loading="lazy" src="${esc(photo(p.u, "square"))}" alt=""></button>`).join("")}</div>` : ""}
       </div>
       <div class="names">
-        <h1>${esc(displayName(b))}</h1>
+        <h1>${esc(displayName(b))} <button class="fav-btn ${favs.has(b.id) ? "on" : ""}" id="favBtn" aria-label="مفضلة" title="أضف للمفضلة">${favs.has(b.id) ? "★" : "☆"}</button></h1>
         ${b.local && b.local !== b.ar ? `<div class="local-big">${esc(b.local)}</div>` : ""}
         <div class="latin muted" style="font-size:1.1rem">${esc(b.sci)}</div>
         <div class="badges">
@@ -381,6 +384,11 @@ async function pageBird(id) {
     document.getElementById("credit").textContent = p.a;
     document.querySelectorAll(".thumbs button").forEach((x) => x.classList.toggle("on", x === btn));
   }));
+  document.getElementById("favBtn").addEventListener("click", (e) => {
+    toggleFav(b.id);
+    e.currentTarget.classList.toggle("on", favs.has(b.id));
+    e.currentTarget.textContent = favs.has(b.id) ? "★" : "☆";
+  });
   window.scrollTo(0, 0);
 
   const s = await loadSightings();
@@ -404,9 +412,9 @@ function soundType(t) {
 function sightingRow(o, bird) {
   const map = o.lat ? `https://www.google.com/maps?q=${o.lat},${o.lng}` : null;
   return `<li>
-    ${bird ? `<a class="thumb" href="#/bird/${bird.id}">${bird.ph ? `<img loading="lazy" src="${esc(photo(bird.ph, "square"))}" alt="">` : ""}</a>` : ""}
+    ${bird?.id ? `<a class="thumb" href="#/bird/${bird.id}">${bird.ph ? `<img loading="lazy" src="${esc(photo(bird.ph, "square"))}" alt="">` : ""}</a>` : bird ? `<span class="thumb"></span>` : ""}
     <div class="grow">
-      ${bird ? `<a class="t" href="#/bird/${bird.id}">${esc(bird.local || displayName(bird))}</a>` : ""}
+      ${bird?.id ? `<a class="t" href="#/bird/${bird.id}">${esc(bird.local || displayName(bird))}</a>` : bird ? `<span class="t en">${esc(displayName(bird))}</span>` : ""}
       <div class="${bird ? "s" : "t"}">${o.hidden ? "الموقع مخفي لحماية النوع" : esc(o.loc)}</div>
       <div class="s">${dateAr(o.dt)}${o.n ? ` · العدد: ${fmt.format(o.n)}` : ""}</div>
     </div>
@@ -427,6 +435,10 @@ async function pageHunting() {
   app.innerHTML = `
     <div class="section-head"><div><h1>طيور المقناص</h1><p>الأنواع المعروفة عند أهل المقناص في المملكة، مرتبة حسب المجموعة، ولكل طير موسم وجوده.</p></div></div>
     <div class="note" style="margin-bottom:20px">الصيد في المملكة يحتاج ترخيصاً من المركز الوطني لتنمية الحياة الفطرية، وله مواسم ومناطق محددة. يُمنع صيد الأنواع المحمية والصيد بالشباك وأجهزة النداء الإلكترونية. تحقق من الأنظمة المحدثة قبل أي طلعة.</div>
+    ${(() => {
+      const here = hunting.filter((b) => (b.presence?.[NOW_MONTH] ?? 0) >= 0.5 && b.status !== "vagrant").sort((a, b) => b.presence[NOW_MONTH] - a.presence[NOW_MONTH]);
+      return here.length ? `<section class="section" style="margin-top:0"><div class="section-head"><div><h2>موجودة في ${MONTHS[NOW_MONTH]}</h2><p>طيور المقناص اللي فرصة وجودها عالية هذا الشهر حسب السجلات.</p></div><span class="muted">${fmt.format(here.length)}</span></div><div class="scroller">${here.map(card).join("")}</div></section>` : "";
+    })()}
     ${[...groups.entries()].map(([g, list]) => `
       <section class="section">
         <div class="section-head"><h2>${esc(g)}</h2><span class="muted">${fmt.format(list.length)}</span></div>
@@ -601,3 +613,8 @@ document.getElementById("themeBtn").addEventListener("click", () => {
   root.dataset.theme = dark ? "light" : "dark";
   store.set("theme", root.dataset.theme);
 });
+
+document.addEventListener("error", (e) => {
+  const img = e.target;
+  if (img?.tagName === "IMG" && !img.dataset.failed) { img.dataset.failed = "1"; img.style.visibility = "hidden"; }
+}, true);

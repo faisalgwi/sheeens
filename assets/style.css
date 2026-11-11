@@ -302,6 +302,9 @@ select.sel:focus { outline: none; border-color: var(--primary); }
 @keyframes sk { to { background-position: -200% 0; } }
 
 
+.fav-btn { border: 0; background: none; cursor: pointer; font-size: 1.5rem; line-height: 1; color: var(--muted-fg); padding: 0 6px; vertical-align: middle; }
+.fav-btn.on { color: var(--primary); }
+
 /* ---------- mobile ---------- */
 .bird-top > *, .two-col > *, .hero > *, .grid > * { min-width: 0; }
 html, body { overflow-x: hidden; }

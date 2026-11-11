@@ -7,3 +7,11 @@
 - المفاتيح (`EBIRD_API_KEY` و`XENO_CANTO_API_KEY`) محفوظة في أسرار المستودع.
 
 المصادر: GBIF، iNaturalist، eBird (مختبر كورنيل)، xeno-canto، ويكي بيانات وويكيبيديا، Open-Meteo.
+
+## التشغيل على جهازك
+الموقع يحتاج خادماً بسيطاً (ما يشتغل بفتح index.html مباشرة):
+- ماك: اضغط مرتين على `شغّل الموقع.command`.
+- أي نظام: `python3 -m http.server 8765` ثم افتح http://localhost:8765
+
+## النشر الخاص
+`functions/_middleware.js` يقفل الموقع برمز دخول على Cloudflare Pages. الرمز يُحفظ في متغير سري اسمه `SITE_PASSWORD`.
