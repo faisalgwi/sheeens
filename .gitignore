@@ -1,0 +1,4 @@
+data/cornell.json
+config.json
+*.log
+__pycache__/

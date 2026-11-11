@@ -1,5 +1,8 @@
 #!/bin/bash
-# يشغّل الموقع على جهازك (ماك). اضغط عليه مرتين.
+# شينز: موقعك الخاص. اضغط عليه مرتين ويفتح في المتصفح.
 cd "$(dirname "$0")"
-( sleep 1; open "http://localhost:8765" ) &
-python3 -m http.server 8765
+if command -v python3 >/dev/null 2>&1; then
+  python3 server.py
+else
+  osascript -e 'display dialog "يحتاج الموقع Python 3. ثبّته من python.org ثم أعد المحاولة." buttons {"حسناً"}'
+fi

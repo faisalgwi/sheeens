@@ -41,6 +41,17 @@ const store = {
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
 };
 
+// ---------- local (personal) mode ----------
+const LOCAL = ["127.0.0.1", "localhost"].includes(location.hostname);
+let statusPromise;
+const apiStatus = () => (statusPromise ??= LOCAL ? fetch("/api/status").then((r) => (r.ok ? r.json() : {})).catch(() => ({})) : Promise.resolve({}));
+const slimObs = (o) => ({ code: o.speciesCode, sci: o.sciName, en: o.comName, loc: o.locName, dt: o.obsDt, n: o.howMany ?? null, lat: o.lat, lng: o.lng, sub: o.subId });
+async function ebird(path) {
+  const r = await fetch(`/api/ebird/${path}`);
+  if (!r.ok) throw new Error(r.status === 401 ? "مفتاح eBird غير مضبوط. افتح الإعدادات." : "تعذّر الاتصال بـ eBird الآن");
+  return r.json();
+}
+
 // ---------- data ----------
 let indexPromise, sightingsPromise;
 const detailCache = new Map();
@@ -53,9 +64,24 @@ function loadIndex() {
   return indexPromise;
 }
 function loadSightings() {
-  sightingsPromise ??= fetch("data/sightings.json", { cache: "no-cache" }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+  sightingsPromise ??= (async () => {
+    const st = await apiStatus();
+    if (st.ebird) {
+      try {
+        const [latest, notable] = await Promise.all([ebird("data/obs/SA/recent?back=30&maxResults=10000"), ebird("data/obs/SA/recent/notable?back=30&detail=simple")]);
+        return { generatedAt: new Date().toISOString(), live: true, latest: latest.map(slimObs), notable: notable.map(slimObs), bySpecies: {} };
+      } catch {}
+    }
+    return fetch("data/sightings.json", { cache: "no-cache" }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+  })();
   return sightingsPromise;
 }
+let cornellPromise;
+function loadCornell() {
+  cornellPromise ??= fetch("data/cornell.json").then((r) => (r.ok ? r.json() : [])).then((list) => { list.forEach((x, i) => (x.i = i)); return list; }).catch(() => []);
+  return cornellPromise;
+}
+const audioSrc = (p) => "../" + p.split("/").map(encodeURIComponent).join("/");
 async function loadDetail(id) {
   if (!detailCache.has(id)) {
     detailCache.set(id, fetch(`data/b/${id}.json`).then((r) => { if (!r.ok) throw new Error("الطير غير موجود"); return r.json(); })
@@ -376,6 +402,7 @@ async function pageBird(id) {
       </div>
     </div>
 
+    <div id="libBox"></div>
     ${sameFamily.length ? `<section class="section"><div class="section-head"><h2>من نفس الفصيلة</h2></div><div class="scroller">${sameFamily.map(card).join("")}</div></section>` : ""}`;
 
   document.querySelectorAll(".thumbs button").forEach((btn) => btn.addEventListener("click", () => {
@@ -391,12 +418,22 @@ async function pageBird(id) {
   });
   window.scrollTo(0, 0);
 
+  const cornell = await loadCornell();
+  const lib = cornell.find((x) => x.sci && (x.sci === b.sci || x.sci === b.inatName));
+  const libBox = document.getElementById("libBox");
+  if (libBox && lib) libBox.innerHTML = `<div class="panel" style="margin-top:16px"><h3>من مكتبتك: دليل كورنيل (${fmt.format(lib.clips.length)} مقطعاً)</h3>
+    <p class="muted" style="font-size:.85rem;margin:4px 0 0">تسجيلات من أمريكا وكندا لنفس النوع. <a href="#/lib/${lib.i}">صفحته في المكتبة</a></p>
+    ${clipList(lib.clips.slice(0, 6))}</div>`;
+
+  const api = await apiStatus();
   const s = await loadSightings();
   const box = document.getElementById("birdSightings");
   if (!box) return;
   if (!s) { box.innerHTML = `<p class="muted">المشاهدات غير متاحة حالياً.</p>`; return; }
   const sci = new Set([b.sci, b.inatName].filter(Boolean));
-  const obs = (b.ebird && s.bySpecies?.[b.ebird]) || [...s.latest, ...s.notable].filter((o) => o.code === b.ebird || sci.has(o.sci));
+  let liveObs = null;
+  if (api.ebird && b.ebird) { try { liveObs = (await ebird(`data/obs/SA/recent/${b.ebird}?back=30`)).map(slimObs); } catch {} }
+  const obs = liveObs || (b.ebird && s.bySpecies?.[b.ebird]) || [...s.latest, ...s.notable].filter((o) => o.code === b.ebird || sci.has(o.sci));
   const uniq = [...new Map(obs.map((o) => [(o.sub ?? o.dt) + o.code, o])).values()].sort((a, c) => c.dt.localeCompare(a.dt)).slice(0, 8);
   box.innerHTML = uniq.length ? `<ul class="list">${uniq.map(sightingRow).join("")}</ul><p class="muted" style="font-size:.8rem">من eBird خلال آخر 30 يوماً · حُدّثت ${timeAgo(s.generatedAt)}</p>`
     : `<p class="muted">ما سُجّلت له مشاهدات في eBird خلال آخر 30 يوماً.</p>`;
@@ -566,11 +603,12 @@ async function pageSightings(params) {
     .sort((a, b) => b.o.dt.localeCompare(a.o.dt));
   const uniqNotable = [...new Map(notable.map((r) => [r.o.code + (r.o.loc ?? r.o.dt), r])).values()].slice(0, 30);
   app.innerHTML = `
-    <div class="section-head"><div><h1>المشاهدات الحديثة</h1><p>آخر رصد لكل نوع في المملكة خلال 30 يوماً، من سجلات راصدي eBird. حُدّثت ${timeAgo(s.generatedAt)}.</p></div></div>
+    <div class="section-head"><div><h1>المشاهدات الحديثة</h1><p>آخر رصد لكل نوع في المملكة خلال 30 يوماً، من سجلات راصدي eBird. ${s.live ? "مباشر من eBird الآن." : `حُدّثت ${timeAgo(s.generatedAt)}.`}</p></div></div>
     <div class="filters">
       <a class="chip ${huntingOnly ? "" : "on"}" href="#/sightings">كل الطيور (${fmt.format(s.latest.length)})</a>
       <a class="chip ${huntingOnly ? "on" : ""}" href="#/sightings?h=1">طيور المقناص فقط</a>
     </div>
+    ${s.live ? `<div class="panel" style="margin-bottom:16px"><div class="wx-head" style="margin:0"><h3>قريب من منطقتي (50 كم · آخر 14 يوماً)</h3>${regionSelect("nearSel", currentRegion()[0])}</div><div id="nearBox"><div class="skel" style="height:60px;margin-top:10px"></div></div></div>` : ""}
     <div class="two-col" style="margin-top:0">
       <div class="panel"><h3>آخر مشاهدة لكل نوع</h3>
         ${rows.length ? `<ul class="list">${rows.slice(0, 120).map((r) => sightingRow(r.o, r.b ?? { id: "", local: null, ar: r.o.en, sci: r.o.sci })).join("")}</ul>` : `<p class="muted">لا توجد مشاهدات.</p>`}
@@ -579,6 +617,157 @@ async function pageSightings(params) {
         ${uniqNotable.length ? `<ul class="list">${uniqNotable.map((r) => sightingRow(r.o, r.b ?? { id: "", local: null, ar: r.o.en, sci: r.o.sci })).join("")}</ul>` : `<p class="muted">لا شيء لافت مؤخراً.</p>`}
       </div>
     </div>`;
+  if (s.live) {
+    const near = async () => {
+      const [, lat, lng] = currentRegion();
+      const nb = document.getElementById("nearBox");
+      try {
+        const obs = (await ebird(`data/obs/geo/recent?lat=${lat}&lng=${lng}&dist=50&back=14&maxResults=200`)).map(slimObs)
+          .map((o) => ({ o, b: bySci.get(o.code) || bySci.get(o.sci) })).filter((r) => !huntingOnly || r.b?.hunting);
+        nb.innerHTML = obs.length ? `<ul class="list">${obs.slice(0, 60).map((r) => sightingRow(r.o, r.b ?? { id: "", local: null, ar: r.o.en, sci: r.o.sci })).join("")}</ul>` : `<p class="muted">ما فيه مشاهدات قريبة مسجلة.</p>`;
+      } catch (e) { nb.innerHTML = errorView(e); }
+    };
+    document.getElementById("nearSel").onchange = (e) => { store.set("region", e.target.value); near(); };
+    near();
+  }
+}
+
+// ---------- Cornell library (personal) ----------
+function clipList(clips) {
+  return clips.map((c) => `<div class="sound"><div><b>${esc(c.l)}</b></div><audio controls preload="none" src="${esc(audioSrc(c.p))}"></audio></div>`).join("");
+}
+async function pageLibrary(params) {
+  setActiveNav("library");
+  const list = await loadCornell();
+  if (!list.length) {
+    app.innerHTML = `<h1>المكتبة</h1><div class="empty" style="margin-top:16px">المكتبة تشتغل من جهازك فقط. شغّل الموقع من ملف «شغّل الموقع» داخل مجلد مكتبة كورنيل.</div>`;
+    return;
+  }
+  const fams = [...new Set(list.map((x) => x.fam))];
+  const state = { q: store.get("libq", ""), fam: store.get("libfam", "all"), only: store.get("libonly", "all"), shown: 80 };
+  const total = list.reduce((a, x) => a + x.clips.length, 0);
+  const saudi = new Set((await loadIndex()).birds.map((b) => b.sci));
+  app.innerHTML = `
+    <div class="section-head"><div><h1>المكتبة الصوتية</h1><p>دليل كورنيل لأصوات الطيور (أمريكا وكندا) من جهازك: ${fmt.format(list.length)} نوعاً و${fmt.format(total)} مقطعاً. للاستخدام الشخصي فقط.</p></div></div>
+    <label class="search" style="margin-bottom:12px">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+      <input id="lq" type="search" placeholder="ابحث بالعربي أو الدارج أو الإنجليزي أو العلمي" value="${esc(state.q)}" autocomplete="off">
+    </label>
+    <div class="filters">
+      ${[["all", "الكل"], ["local", "له اسم دارج"], ["saudi", "موجود في السعودية"]].map(([k, l]) => `<button class="chip ${state.only === k ? "on" : ""}" data-o="${k}">${l}</button>`).join("")}
+      <select class="sel" id="lfam"><option value="all">كل الفصائل</option>${fams.map((f) => `<option ${state.fam === f ? "selected" : ""}>${esc(f)}</option>`).join("")}</select>
+      <span class="count-note" id="lcount"></span>
+    </div>
+    <ul class="list panel" id="llist"></ul>
+    <div class="more" id="lmore"></div>`;
+  const idx = list.map((x) => ({ x, t: norm([x.ar, x.local, x.en, x.sci, x.fam].join(" ")) }));
+  const draw = () => {
+    const q = norm(state.q);
+    let r = idx.filter((y) => !q || y.t.includes(q)).map((y) => y.x);
+    if (state.fam !== "all") r = r.filter((x) => x.fam === state.fam);
+    if (state.only === "local") r = r.filter((x) => x.local);
+    if (state.only === "saudi") r = r.filter((x) => saudi.has(x.sci));
+    document.getElementById("lcount").textContent = `${fmt.format(r.length)} نوعاً`;
+    document.getElementById("llist").innerHTML = r.length ? r.slice(0, state.shown).map((x) => `<li><div class="grow"><a class="t" href="#/lib/${x.i}">${esc(x.ar)}</a>${x.local ? ` <span style="color:var(--primary);font-weight:600">· ${esc(x.local)}</span>` : ""}
+      <div class="s"><span class="en">${esc(x.en)}</span> · <span class="latin">${esc(x.sci ?? "")}</span></div></div>
+      <div class="side">${fmt.format(x.clips.length)} مقطع${saudi.has(x.sci) ? "<br>🇸🇦" : ""}</div></li>`).join("") : `<li class="muted">ما فيه نتائج.</li>`;
+    document.getElementById("lmore").innerHTML = r.length > state.shown ? `<button class="btn ghost" id="lmb">عرض المزيد</button>` : "";
+    document.getElementById("lmb")?.addEventListener("click", () => { state.shown += 120; draw(); });
+  };
+  draw();
+  let t;
+  document.getElementById("lq").addEventListener("input", (e) => { clearTimeout(t); t = setTimeout(() => { state.q = e.target.value; state.shown = 80; store.set("libq", state.q); draw(); }, 150); });
+  document.getElementById("lfam").onchange = (e) => { state.fam = e.target.value; store.set("libfam", state.fam); draw(); };
+  document.querySelectorAll("[data-o]").forEach((b) => b.addEventListener("click", () => {
+    state.only = b.dataset.o; store.set("libonly", state.only);
+    document.querySelectorAll("[data-o]").forEach((x) => x.classList.toggle("on", x === b)); draw();
+  }));
+}
+async function pageLibBird(i) {
+  setActiveNav("library");
+  const list = await loadCornell();
+  const x = list[Number(i)];
+  if (!x) throw new Error("الطير غير موجود في المكتبة");
+  const sa = (await loadIndex()).birds.find((b) => b.sci === x.sci);
+  document.title = `${x.ar} | المكتبة`;
+  app.innerHTML = `
+    <div class="crumbs"><a href="#/library">المكتبة</a> / ${esc(x.fam)} / ${esc(x.ar)}</div>
+    <div class="bird-top">
+      <div class="gallery"><div class="main-ph" id="lph">${sa?.ph ? `<img src="${esc(photo(sa.ph, "large"))}" alt="">` : `<div class="skel" style="height:100%"></div>`}</div><div class="credit" id="lcr"></div></div>
+      <div class="names">
+        <h1>${esc(x.ar)}</h1>
+        ${x.local ? `<div class="local-big">${esc(x.local)}</div>` : ""}
+        <div class="latin muted" style="font-size:1.1rem">${esc(x.sci ?? "")}</div>
+        <div class="name-table">
+          <div><span class="k">بالإنجليزي</span><span class="en">${esc(x.en)}</span></div>
+          <div><span class="k">الاسم العلمي</span><span class="latin">${esc(x.sci ?? "")}</span></div>
+          <div><span class="k">الفصيلة</span><span>${esc(x.fam)}</span></div>
+          <div><span class="k">في السعودية</span><span>${sa ? `<a href="#/bird/${sa.id}" style="color:var(--primary)">نعم، افتح صفحته ←</a>` : `<span class="muted">غير مسجّل في السعودية</span>`}</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="panel" style="margin-top:16px"><h3>المقاطع (${fmt.format(x.clips.length)})</h3>${clipList(x.clips)}
+      <p class="muted" style="font-size:.8rem;margin-bottom:0">من The Cornell Guide to Bird Sounds، مكتبة ماكولي. للاستخدام الشخصي فقط، واستخدام الأصوات لجذب الطيور في الصيد ممنوع.</p></div>`;
+  window.scrollTo(0, 0);
+  if (!sa?.ph && x.sci) {
+    try {
+      const r = await fetch(`https://api.inaturalist.org/v1/taxa?q=${encodeURIComponent(x.sci)}&rank=species&per_page=1`).then((r) => r.json());
+      const p = r.results?.[0]?.default_photo;
+      const el = document.getElementById("lph");
+      if (el) el.innerHTML = p ? `<img src="${esc(String(p.medium_url).replace("/medium.", "/large."))}" alt="">` : `<div class="empty" style="height:100%;display:grid;place-items:center">لا توجد صورة</div>`;
+      const cr = document.getElementById("lcr");
+      if (cr && p) cr.textContent = p.attribution;
+    } catch {}
+  }
+}
+async function pageSettings() {
+  setActiveNav("settings");
+  if (!LOCAL) { app.innerHTML = `<h1>الإعدادات</h1><div class="empty" style="margin-top:16px">الإعدادات متاحة لما تشغّل الموقع من جهازك.</div>`; return; }
+  const st = await fetch("/api/status").then((r) => r.json()).catch(() => ({}));
+  app.innerHTML = `
+    <h1>الإعدادات</h1>
+    <div class="panel" style="margin-top:16px">
+      <h3>المفاتيح</h3>
+      <p class="muted" style="font-size:.88rem">تنحفظ على جهازك فقط في ملف config.json، وما تطلع للمتصفح.</p>
+      <div class="name-table">
+        <div><span class="k">eBird</span><span>${st.ebird ? "✅ مضبوط" : "❌ غير مضبوط"}</span></div>
+        <div><span class="k">xeno-canto</span><span>${st.xc ? "✅ مضبوط" : "❌ غير مضبوط"}</span></div>
+      </div>
+      <form id="keys" style="display:grid;gap:10px;max-width:520px">
+        <label class="search"><input name="ebird" type="password" placeholder="مفتاح eBird (اتركه فاضي إذا ما تبي تغيّره)" autocomplete="off"></label>
+        <label class="search"><input name="xc" type="password" placeholder="مفتاح xeno-canto (اختياري)" autocomplete="off"></label>
+        <button class="btn" type="submit" style="justify-self:start">حفظ</button>
+        <div id="kmsg" class="muted"></div>
+      </form>
+    </div>
+    <div class="panel">
+      <h3>تحديث بيانات الطيور</h3>
+      <p class="muted" style="font-size:.88rem">يسحب من جديد قائمة طيور السعودية وصورها وأسماءها وأصواتها (ياخذ 10 إلى 20 دقيقة). المشاهدات ما تحتاج تحديث، لأنها مباشرة.</p>
+      ${st.node ? `<button class="btn ghost" id="upd">ابدأ التحديث</button>` : `<p class="note">يحتاج برنامج Node.js على جهازك. تحمّله مجاناً من nodejs.org ثم أعد تشغيل الموقع.</p>`}
+      <pre id="ulog" class="muted" style="white-space:pre-wrap;font-size:.8rem;max-height:220px;overflow:auto;direction:ltr;text-align:left">${esc(st.updateLog ?? "")}</pre>
+    </div>`;
+  document.getElementById("keys").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const f = new FormData(e.target);
+    const body = { ebird: String(f.get("ebird") || "").trim(), xc: String(f.get("xc") || "").trim() };
+    const r = await fetch("/api/config", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    document.getElementById("kmsg").textContent = r.ok ? "تم الحفظ." : "تعذّر الحفظ.";
+    statusPromise = null; sightingsPromise = null;
+    if (r.ok) setTimeout(pageSettings, 600);
+  });
+  document.getElementById("upd")?.addEventListener("click", async (e) => {
+    e.currentTarget.disabled = true;
+    await fetch("/api/update", { method: "POST" });
+    const tick = async () => {
+      const s2 = await fetch("/api/status").then((r) => r.json()).catch(() => ({}));
+      const el = document.getElementById("ulog");
+      if (!el) return;
+      el.textContent = s2.updateLog ?? "";
+      el.scrollTop = el.scrollHeight;
+      if (s2.updating) setTimeout(tick, 3000); else { indexPromise = null; detailCache.clear(); }
+    };
+    tick();
+  });
 }
 
 // ---------- router ----------
@@ -594,6 +783,9 @@ async function route() {
     else if (parts[0] === "migration") await pageMigration(params);
     else if (parts[0] === "weather") await pageWeather();
     else if (parts[0] === "sightings") await pageSightings(params);
+    else if (parts[0] === "library") await pageLibrary(params);
+    else if (parts[0] === "lib" && parts[1]) await pageLibBird(parts[1]);
+    else if (parts[0] === "settings") await pageSettings();
     else await pageHome(params);
   } catch (e) {
     app.innerHTML = errorView(e);
