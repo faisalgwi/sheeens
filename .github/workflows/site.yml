@@ -67,7 +67,12 @@ jobs:
           if git diff --cached --quiet; then echo "no data changes"; else git commit -m "Update bird data" && (git push || (git pull --rebase -X theirs origin main && git push)); fi
 
       - uses: actions/configure-pages@v5
+      - name: Site is closed - publish an empty page only
+        run: |
+          mkdir _closed
+          printf '<!DOCTYPE html><html lang="ar" dir="rtl"><meta charset="utf-8"><meta name="robots" content="noindex,nofollow"><title>مغلق</title><body></body></html>' > _closed/index.html
+          printf 'User-agent: *\nDisallow: /\n' > _closed/robots.txt
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: .
+          path: _closed
       - uses: actions/deploy-pages@v4
