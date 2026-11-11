@@ -388,3 +388,5 @@ html, body { overflow-x: hidden; }
   .crumbs { font-size: 0.8rem; margin-bottom: 10px; }
 }
 @media (hover: none) { .card:hover { transform: none; } }
+
+.list.panel { padding: 4px 18px; }
