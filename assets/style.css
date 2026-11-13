@@ -423,3 +423,5 @@ html.is-local .local-only { display: inline-block; }
 .map-months .btn { padding: 6px 14px; flex: none; }
 .map-months .month-pick { flex: 1; padding-bottom: 0; }
 @media (max-width: 760px) { .map3d { height: min(86vw, 62vh); } .map-labels span { font-size: 10px; } }
+.map-note { color: var(--muted-fg); font-size: .85rem; margin: -4px 0 8px; }
+.map-note:empty { display: none; }

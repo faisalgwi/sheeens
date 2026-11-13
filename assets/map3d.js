@@ -1,6 +1,6 @@
 // 3D map of Saudi Arabia: terrain + where a bird was recorded, month by month.
 import * as THREE from "three";
-import { OrbitControls } from "./OrbitControls.js";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 
 const MONTHS = ["يناير", "فبراير", "مارس", "أبريل", "مايو", "يونيو", "يوليو", "أغسطس", "سبتمبر", "أكتوبر", "نوفمبر", "ديسمبر"];
 let dataPromise, geoPromise;
@@ -11,6 +11,7 @@ const loadData = () => (dataPromise ??= Promise.all([
 export const loadMapData = () => loadData().then(([m]) => m);
 const loadGeo = () => (geoPromise ??= fetch("data/map/geo.json").then((r) => r.json()));
 
+const MIN_EFF = 15;        // records of all birds needed before a place's share counts as reliable
 const SCALE = 1;          // 1 unit = 1 degree
 const Z_EXAG = 0.00045;   // metres -> units (strong vertical exaggeration so mountains read)
 
@@ -139,7 +140,9 @@ export async function mountMap(el, opts) {
 
   let current = [];
   const m4 = new THREE.Matrix4();
+  let lastMode = "rel";
   function show(id, month, mode) {
+    lastMode = mode;
     const recs = map.sp[id] ?? [];
     const agg = new Map();
     for (const [cell, m, n] of recs) if (month < 0 || m === month) agg.set(cell, (agg.get(cell) ?? 0) + n);
@@ -148,10 +151,12 @@ export async function mountMap(el, opts) {
       // smoothed share: places with very few records overall do not jump to the top
       return { cell, n, eff, v: mode === "rel" ? n / (eff + 25) : n };
     });
-    const vmax = Math.max(1e-9, ...current.map((x) => x.v));
+    // in the density view, places with few records of any bird don't set the scale (too noisy)
+    const sure = mode === "rel" ? current.filter((x) => x.eff >= MIN_EFF) : current;
+    const vmax = Math.max(1e-9, ...(sure.length ? sure : current).map((x) => x.v));
     bars.count = current.length;
     current.forEach((x, i) => {
-      const t = mode === "rel" ? x.v / vmax : Math.log1p(x.v) / Math.log1p(vmax);
+      const t = Math.min(1, mode === "rel" ? x.v / vmax : Math.log1p(x.v) / Math.log1p(vmax));
       const [lon, lat] = cellCenter(x.cell);
       x.t = t; x.lon = lon; x.lat = lat;
       m4.makeScale(1, 1, 0.08 + t * 3.2).setPosition(X(lon), Y(lat), H(lon, lat));
@@ -177,7 +182,7 @@ export async function mountMap(el, opts) {
       tip.style.display = "block";
       tip.style.left = `${e.clientX - rect.left + 12}px`;
       tip.style.top = `${e.clientY - rect.top + 12}px`;
-      tip.textContent = `${opts.nearest(x.lon, x.lat)} · ${x.n} سجلاً من ${x.eff} لكل الطيور`;
+      tip.textContent = `${opts.nearest(x.lon, x.lat)} · ${opts.recs ? opts.recs(x.n) : x.n} (من ${x.eff} لكل الطيور)`;
     } else tip.style.display = "none";
   };
   renderer.domElement.addEventListener("pointermove", onPtr);
@@ -221,7 +226,11 @@ export async function mountMap(el, opts) {
   return {
     show,
     reset() { touched = false; fit(); controls.target.set(0, -0.6, 0); },
-    top(cells, n = 6) { return [...cells].sort((a, b) => b.v - a.v).slice(0, n); },
+    // best places first; in the density view, well-watched places rank ahead of barely-watched ones
+    top(cells, n = 6) {
+      const sure = lastMode === "rel" ? cells.filter((x) => x.eff >= MIN_EFF) : cells;
+      return [...(sure.length ? sure : cells)].sort((a, b) => b.v - a.v).slice(0, n);
+    },
     months: MONTHS,
   };
 }

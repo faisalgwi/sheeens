@@ -827,10 +827,22 @@ async function pageSettings() {
 }
 
 // ---------- 3D map ----------
+const recs = (n) => {
+  if (n === 1) return "سجل واحد";
+  if (n === 2) return "سجلان";
+  const r = n % 100;
+  return `${fmt.format(n)} ${r >= 3 && r <= 10 ? "سجلات" : r >= 11 ? "سجلاً" : "سجل"}`;
+};
+const COMPASS = ["شمال", "شمال شرق", "شرق", "جنوب شرق", "جنوب", "جنوب غرب", "غرب", "شمال غرب"];
 const nearestPlace = (lon, lat) => {
-  let best = null, bd = 1e9;
-  for (const [n, la, lo] of REGIONS) { const d = (la - lat) ** 2 + (lo - lon) ** 2; if (d < bd) { bd = d; best = n; } }
-  return bd < 0.6 ? `قرب ${best}` : `${lat.toFixed(1)}°، ${lon.toFixed(1)}° (أقرب مدينة: ${best})`;
+  let best = null, bd = 1e9, bla = 0, blo = 0;
+  for (const [n, la, lo] of REGIONS) {
+    const dy = (lat - la) * 111, dx = (lon - lo) * 111 * Math.cos((lat * Math.PI) / 180), d = Math.hypot(dx, dy);
+    if (d < bd) { bd = d; best = n; bla = dy; blo = dx; }
+  }
+  if (bd < 40) return `قرب ${best}`;
+  const dir = COMPASS[Math.round(((Math.atan2(blo, bla) * 180) / Math.PI + 360) / 45) % 8];
+  return `${fmt.format(Math.round(bd / 10) * 10)} كم ${dir} ${best}`;
 };
 async function pageMap(id) {
   setActiveNav("map");
@@ -855,6 +867,7 @@ async function pageMap(id) {
       <div class="seg"><button data-mode="rel" class="${state.mode === "rel" ? "on" : ""}" title="السجلات مقسومة على نشاط الراصدين في المكان">الكثافة</button><button data-mode="raw" class="${state.mode === "raw" ? "on" : ""}">عدد السجلات</button></div>
     </div>
     <div class="map-title" id="mtitle"></div>
+    <div class="map-note" id="mnote"></div>
     <div class="map-wrap">
       <div class="map3d" id="map3d"><div class="loading">جاري تحميل الخريطة…</div></div>
       <div class="map-months">
@@ -871,13 +884,20 @@ async function pageMap(id) {
       <div class="panel"><h3>متى يكثر في المملكة</h3><div class="cal" id="mcal"></div><div class="legend"><span>اضغط على أي شهر</span></div>
         <p class="muted" style="font-size:.82rem;margin-bottom:0">«الكثافة» تقسم سجلات الطير على مجموع سجلات كل الطيور في نفس المكان والشهر، عشان ما تطغى الأماكن اللي يكثر فيها الراصدون. المصدر GBIF ويشمل eBird. هذي سجلات، وغياب العمود ما يعني غياب الطير.</p></div>
     </div>`;
-  const map = await mod.mountMap(document.getElementById("map3d"), { nearest: nearestPlace });
+  const map = await mod.mountMap(document.getElementById("map3d"), { nearest: nearestPlace, recs });
   const totals = mapData.sp;
   const draw = () => {
     const cells = map.show(bird.id, state.month, state.mode);
     const total = cells.reduce((a, x) => a + x.n, 0);
-    document.getElementById("mtitle").innerHTML = `<a href="#bird-${bird.id}">${esc(bird.local || displayName(bird))}</a> <span class="latin muted">${esc(bird.sci)}</span> · ${state.month < 0 ? "كل السنة" : MONTHS[state.month]} · ${fmt.format(total)} سجلاً${mapData.yr?.[bird.id] ? ` <span class="muted" style="font-weight:400">(سجلات ${mapData.yr[bird.id][0]}–${mapData.yr[bird.id][1]})</span>` : ""}`;
-    document.getElementById("mtop").innerHTML = cells.length ? map.top(cells).map((x, i) => `<li><div class="grow"><span class="t">${i + 1}. ${esc(nearestPlace(x.lon, x.lat))}</span><div class="s">${fmt.format(x.n)} سجلاً</div></div><div class="side"><a href="https://www.google.com/maps?q=${x.lat.toFixed(3)},${x.lon.toFixed(3)}" target="_blank" rel="noopener">الموقع</a></div></li>`).join("")
+    document.getElementById("mnote").innerHTML = total && total < 15 ? `سجلات قليلة في ${state.month < 0 ? "السنة" : MONTHS[state.month]}، فالصورة ناقصة. جرّب «كل السنة» أو شهراً ثانياً.` : "";
+    document.getElementById("mtitle").innerHTML = `<a href="#bird-${bird.id}">${esc(bird.local || displayName(bird))}</a> <span class="latin muted">${esc(bird.sci)}</span> · ${state.month < 0 ? "كل السنة" : MONTHS[state.month]} · ${recs(total)}${mapData.yr?.[bird.id] ? ` <span class="muted" style="font-weight:400">(سجلات ${mapData.yr[bird.id][0]}–${mapData.yr[bird.id][1]})</span>` : ""}`;
+    // neighbouring squares near the same town are merged into one line
+    const places = [];
+    for (const x of map.top(cells, cells.length)) {
+      const name = nearestPlace(x.lon, x.lat), p = places.find((q) => q.name === name);
+      if (p) p.n += x.n; else if (places.length < 6) places.push({ name, n: x.n, lat: x.lat, lon: x.lon });
+    }
+    document.getElementById("mtop").innerHTML = places.length ? places.map((x, i) => `<li><div class="grow"><span class="t">${i + 1}. ${esc(x.name)}</span><div class="s">${recs(x.n)}</div></div><div class="side"><a href="https://www.google.com/maps?q=${x.lat.toFixed(3)},${x.lon.toFixed(3)}" target="_blank" rel="noopener">الموقع</a></div></li>`).join("")
       : `<li class="muted">ما فيه سجلات لهذا الطير في ${state.month < 0 ? "السنة" : MONTHS[state.month]}.</li>`;
     const per = Array(12).fill(0);
     for (const [, m, n] of totals[bird.id] ?? []) per[m] += n;
