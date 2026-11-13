@@ -542,7 +542,7 @@ async function pageWeather() {
   setActiveNav("weather");
   const [name, lat, lon] = currentRegion();
   app.innerHTML = `
-    <div class="wx-head"><div><h1>طقس المقناص</h1><p class="muted" style="margin:4px 0 0">توقعات مباشرة من Open-Meteo لمناطق المملكة، مع مؤشر إرشادي للطلعة وأثر الرياح على الهجرة.</p></div>${regionSelect("wxSel", name)}</div>
+    <div class="wx-head"><div><h1>طقس المقناص</h1><p class="muted" style="margin:4px 0 0">توقعات ${ART ? "من Open-Meteo تتحدث كل 3 ساعات" : "مباشرة من Open-Meteo"} لمناطق المملكة، مع مؤشر إرشادي للطلعة وأثر الرياح على الهجرة.</p></div>${regionSelect("wxSel", name)}</div>
     <div id="wxBody"><div class="skel" style="height:300px"></div></div>`;
   document.getElementById("wxSel").onchange = (e) => { store.set("region", e.target.value); pageWeather(); };
   const body = document.getElementById("wxBody");
