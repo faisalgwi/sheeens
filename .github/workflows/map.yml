@@ -6,7 +6,7 @@ on:
     - cron: "41 1 * * 0"   # weekly, Sunday 04:41 Riyadh
   push:
     branches: [main]
-    paths: ["scripts/sync-map.mjs", ".github/workflows/map.yml"]
+    paths: ["scripts/sync-map.mjs", "scripts/pack-map.mjs", ".github/workflows/map.yml"]
 
 permissions:
   contents: write
@@ -26,7 +26,12 @@ jobs:
           node-version: 20
       - run: npm install --no-save pngjs@7
       - run: node scripts/sync-map.mjs
+        timeout-minutes: 110
+        continue-on-error: true   # a cut-off run still saves what it got; the next run resumes
+      - run: node scripts/pack-map.mjs
+        if: always()
       - name: Save map data
+        if: always()
         run: |
           git config user.name "sheeens-bot"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"

@@ -52,6 +52,8 @@ for (let r = 0; r < rows; r++) {
   }
 }
 await writeFile(new URL("elev.bin", OUT), Buffer.from(elev.buffer));
+const gcm = Math.round((BBOX.e - BBOX.w) / CELL), grm = Math.round((BBOX.n - BBOX.s) / CELL);
+await writeFile(new URL("meta.json", OUT), JSON.stringify({ generatedAt: new Date().toISOString(), bbox: BBOX, elev: { step: ELEV_STEP, cols, rows }, grid: { cell: CELL, cols: gcm, rows: grm } }));
 console.log(`terrain ${cols}x${rows}, ${tiles.size} tiles`);
 
 // ---------- occurrences per species ----------
@@ -61,10 +63,15 @@ const cellOf = (lat, lon) => {
   return c >= 0 && c < gc && r >= 0 && r < gr ? r * gc + c : -1;
 };
 const idx = JSON.parse(await readFile(new URL("birds.json", DATA), "utf8"));
-const effort = new Map(); // cell*12+month -> records of all birds
-const MAX = 20000;
+const MAX = 10000;           // records per bird is plenty for a map
+const FRESH = 6 * 864e5;     // skip birds fetched in the last 6 days (lets a cut-off run resume)
+const LEGACY_T = Date.parse("2026-11-13T12:00:00Z"); // files from the first run carry no time stamp
 let done = 0;
 async function species(b) {
+  try {
+    const old = JSON.parse(await readFile(new URL(`sp/${b.id}.json`, OUT), "utf8"));
+    if (Date.now() - (old.t ?? LEGACY_T) < FRESH) { done++; return; }
+  } catch {}
   const counts = new Map();
   let years = [];
   for (let off = 0; off < MAX; off += 300) {
@@ -75,38 +82,20 @@ async function species(b) {
       if (cell < 0) continue;
       const k = cell * 12 + (o.month - 1);
       counts.set(k, (counts.get(k) ?? 0) + 1);
-      effort.set(k, (effort.get(k) ?? 0) + 1);
       if (o.year) years.push(o.year);
     }
     if (r.endOfRecords || !r.results.length) break;
   }
   const c = [...counts.entries()].map(([k, n]) => [Math.floor(k / 12), k % 12, n]);
   years.sort((a, b2) => a - b2);
-  await writeFile(new URL(`sp/${b.id}.json`, OUT), JSON.stringify({ id: b.id, c, y: years.length ? [years[0], years[years.length - 1]] : null }));
+  await writeFile(new URL(`sp/${b.id}.json`, OUT), JSON.stringify({ id: b.id, t: Date.now(), c, y: years.length ? [years[0], years[years.length - 1]] : null }));
   if (++done % 25 === 0) console.log(`species ${done}/${idx.birds.length}`);
 }
 const queue = [...idx.birds];
-await Promise.all(Array.from({ length: 4 }, async () => {
+await Promise.all(Array.from({ length: 6 }, async () => {
   while (queue.length) {
     const b = queue.shift();
     try { await species(b); } catch (e) { console.log("fail", b.id, e.message); }
   }
 }));
-await writeFile(new URL("effort.json", OUT), JSON.stringify([...effort.entries()].map(([k, n]) => [Math.floor(k / 12), k % 12, n])));
-await writeFile(new URL("meta.json", OUT), JSON.stringify({ generatedAt: new Date().toISOString(), bbox: BBOX, elev: { step: ELEV_STEP, cols, rows }, grid: { cell: CELL, cols: gc, rows: gr } }));
-console.log("map data done");
-
-// ---------- one packed file for the site (per-species files stay for reference) ----------
-{
-  const sp = {}, yr = {};
-  for (const b of idx.birds) {
-    try {
-      const j = JSON.parse(await readFile(new URL(`sp/${b.id}.json`, OUT), "utf8"));
-      if (j.c.length) { sp[b.id] = j.c; if (j.y) yr[b.id] = j.y; }
-    } catch {}
-  }
-  const meta = JSON.parse(await readFile(new URL("meta.json", OUT), "utf8"));
-  const eff = JSON.parse(await readFile(new URL("effort.json", OUT), "utf8"));
-  await writeFile(new URL("map.json", OUT), JSON.stringify({ meta, effort: eff, sp, yr }));
-  console.log(`packed ${Object.keys(sp).length} species`);
-}
+console.log("species done");
