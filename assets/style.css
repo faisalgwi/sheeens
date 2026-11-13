@@ -425,3 +425,19 @@ html.is-local .local-only { display: inline-block; }
 @media (max-width: 760px) { .map3d { height: min(86vw, 62vh); } .map-labels span { font-size: 10px; } }
 .map-note { color: var(--muted-fg); font-size: .85rem; margin: -4px 0 8px; }
 .map-note:empty { display: none; }
+
+/* field notes */
+.field-notes { margin-top: 18px; }
+.field-notes h3, .tip h3 { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.fn-row { display: grid; grid-template-columns: 110px 1fr; gap: 10px; padding: 8px 0; border-top: 1px solid var(--border); line-height: 1.7; }
+.fn-row:first-of-type { border-top: 0; }
+.fn-row .k { color: var(--muted-fg); font-size: .9rem; }
+.lvl { font-size: .72rem; font-weight: 600; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted-fg); }
+.lvl.ok { color: #2e7d4f; border-color: #2e7d4f; }
+.lvl.soft { color: #b07a12; border-color: #b07a12; }
+.lvl.tip { color: var(--primary); border-color: var(--primary); }
+.srcs { margin-top: 10px; font-size: .8rem; color: var(--muted-fg); line-height: 1.8; }
+.srcs a { color: var(--primary); }
+.tips { display: grid; align-items: start; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; }
+.tip p { margin: 6px 0 0; line-height: 1.8; }
+@media (max-width: 760px) { .fn-row { grid-template-columns: 1fr; gap: 2px; } }

@@ -357,10 +357,29 @@ async function pageHome(params) {
   document.getElementById("sort").onchange = (e) => { state.sort = e.target.value; store.set("sort", state.sort); apply(); };
 }
 
+// ---------- field notes (hand-checked, data/notes.json) ----------
+let notesPromise;
+const loadNotes = () => (notesPromise ??= fetch("data/notes.json", { cache: "no-cache" }).then((r) => (r.ok ? r.json() : null)).catch(() => null));
+const LEVEL = { "موثّق": "ok", "متداول": "soft", "نصيحة": "tip" };
+const levelBadge = (l) => l ? `<span class="lvl ${LEVEL[l] ?? ""}">${esc(l)}</span>` : "";
+const srcLinks = (src) => src?.length ? `<div class="srcs">المصادر: ${src.map(([t, u]) => `<a href="${esc(u)}" target="_blank" rel="noopener"><bdi>${esc(t)}</bdi></a>`).join(" · ")}</div>` : "";
+function notesPanel(n) {
+  if (!n) return "";
+  const row = (k, v) => v ? `<div class="fn-row"><span class="k">${k}</span><span>${esc(v)}</span></div>` : "";
+  return `<div class="panel field-notes">
+    <h3>معلومات ميدانية ${levelBadge(n.level)}</h3>
+    ${n.names?.length ? `<div class="fn-row"><span class="k">أسماء متداولة</span><span>${n.names.map(([a, w]) => `<b>${esc(a)}</b> <span class="muted">(${esc(w)})</span>`).join("، ")}</span></div>` : ""}
+    ${row("متى", n.when)}${row("وين", n.where)}${row("التمييز", n.id)}
+    ${n.caution ? `<div class="note" style="margin:10px 0 0">⚠ ${esc(n.caution)}</div>` : ""}
+    ${srcLinks(n.src)}
+  </div>`;
+}
+
 async function pageBird(id) {
   setActiveNav("");
-  const [b, index] = await Promise.all([loadDetail(id), loadIndex()]);
+  const [b, index, notes] = await Promise.all([loadDetail(id), loadIndex(), loadNotes()]);
   const st = STATUS[b.status] ?? STATUS.unknown;
+  const fieldNote = notes?.species?.[b.sci];
   document.title = `${displayName(b)} | شينز`;
   const photos = b.photos ?? [];
   const sameFamily = index.birds.filter((x) => x.fam === b.fam && x.id !== b.id).slice(0, 8);
@@ -397,6 +416,8 @@ async function pageBird(id) {
         ${b.localNote && /محمي|ممنوع|مقيد/.test(b.localNote) ? `<div class="note">⚠ ${esc(b.localNote)}</div>` : ""}
       </div>
     </div>
+
+    ${notesPanel(fieldNote)}
 
     <div class="two-col">
       <div class="panel">
@@ -496,7 +517,7 @@ function sightingRow(o, bird) {
 
 async function pageHunting() {
   setActiveNav("hunting");
-  const data = await loadIndex();
+  const [data, notes] = await Promise.all([loadIndex(), loadNotes()]);
   const hunting = data.birds.filter((b) => b.hunting);
   const groups = new Map();
   for (const b of hunting) {
@@ -506,7 +527,14 @@ async function pageHunting() {
   }
   app.innerHTML = `
     <div class="section-head"><div><h1>طيور المقناص</h1><p>الأنواع المعروفة عند أهل المقناص في المملكة، مرتبة حسب المجموعة، ولكل طير موسم وجوده.</p></div></div>
-    <div class="note" style="margin-bottom:20px">الصيد في المملكة يحتاج ترخيصاً من المركز الوطني لتنمية الحياة الفطرية، وله مواسم ومناطق محددة. يُمنع صيد الأنواع المحمية والصيد بالشباك وأجهزة النداء الإلكترونية. تحقق من الأنظمة المحدثة قبل أي طلعة.</div>
+    ${notes?.general?.length ? `<section class="section" style="margin-top:0">
+      <div class="section-head"><div><h2>قبل الطلعة</h2><p>${esc(notes.about)}</p></div></div>
+      <div class="tips">${notes.general.map((g) => `<div class="panel tip"><h3>${esc(g.title)} ${levelBadge(g.level)}</h3><p>${esc(g.text)}</p>${srcLinks(g.src)}</div>`).join("")}</div>
+      ${(() => {
+        const ids = Object.keys(notes.species ?? {}).map((sci) => data.birds.find((b) => b.sci === sci)).filter(Boolean);
+        return ids.length ? `<div class="section-head" style="margin-top:18px"><div><h2>طيور لها معلومات ميدانية</h2><p>افتح الطير وشوف قسم «معلومات ميدانية».</p></div></div><div class="scroller">${ids.map(card).join("")}</div>` : "";
+      })()}
+    </section>` : `<div class="note" style="margin-bottom:20px">الصيد في المملكة يحتاج ترخيصاً من المركز الوطني لتنمية الحياة الفطرية. تحقق من الأنظمة المحدثة قبل أي طلعة.</div>`}
     ${(() => {
       const here = hunting.filter((b) => (b.presence?.[NOW_MONTH] ?? 0) >= 0.5 && b.status !== "vagrant").sort((a, b) => b.presence[NOW_MONTH] - a.presence[NOW_MONTH]);
       return here.length ? `<section class="section" style="margin-top:0"><div class="section-head"><div><h2>موجودة في ${MONTHS[NOW_MONTH]}</h2><p>طيور المقناص اللي فرصة وجودها عالية هذا الشهر حسب السجلات.</p></div><span class="muted">${fmt.format(here.length)}</span></div><div class="scroller">${here.map(card).join("")}</div></section>` : "";
