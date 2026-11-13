@@ -5,9 +5,10 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 const MONTHS = ["يناير", "فبراير", "مارس", "أبريل", "مايو", "يونيو", "يوليو", "أغسطس", "سبتمبر", "أكتوبر", "نوفمبر", "ديسمبر"];
 let dataPromise, geoPromise;
 const get = (u, kind) => fetch(u).then((r) => { if (!r.ok) throw new Error(u); return r[kind](); });
-const loadData = () => (dataPromise ??= Promise.all([
-  get("data/map/map.json", "json"), get("data/map/elev.bin", "arrayBuffer"), get("data/map/mask.bin", "arrayBuffer"),
-]).catch((e) => { dataPromise = null; throw e; }));
+const unb64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0)).buffer;
+const loadData = () => (dataPromise ??= Promise.all([get("data/map/map.json", "json"), get("data/map/terrain.json", "json")])
+  .then(([m, t]) => [m, unb64(t.elev), unb64(t.mask)])
+  .catch((e) => { dataPromise = null; throw e; }));
 export const loadMapData = () => loadData().then(([m]) => m);
 const loadGeo = () => (geoPromise ??= fetch("data/map/geo.json").then((r) => r.json()));
 

@@ -16,4 +16,7 @@ for (const b of idx.birds) {
 }
 const eff = [...effort.entries()].map(([k, n]) => [Math.floor(k / 12), k % 12, n]);
 await writeFile(new URL("map.json", OUT), JSON.stringify({ meta, effort: eff, sp, yr }));
+// terrain heights + Saudi land mask as one JSON file (the private Claude page can't serve .bin files)
+const b64 = async (f) => (await readFile(new URL(f, OUT))).toString("base64");
+await writeFile(new URL("terrain.json", OUT), JSON.stringify({ elev: await b64("elev.bin"), mask: await b64("mask.bin") }));
 console.log(`packed ${Object.keys(sp).length} birds, ${eff.length} cell-months`);
