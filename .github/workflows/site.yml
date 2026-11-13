@@ -59,6 +59,10 @@ jobs:
           EBIRD_API_KEY: ${{ secrets.EBIRD_API_KEY }}
         run: node scripts/sync-sightings.mjs
 
+      - name: Weather snapshot and bird photos
+        continue-on-error: true
+        run: node scripts/sync-extra.mjs
+
       - name: Save data to the repository
         run: |
           git config user.name "sheeens-bot"
