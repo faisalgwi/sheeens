@@ -58,6 +58,8 @@ async function readJson(name, fallback) {
 const log = (...a) => console.log(new Date().toISOString().slice(11, 19), ...a);
 
 // ---------- 1. GBIF ----------
+// Month patterns use people's sightings only: GPS-tag tracks from a few tagged birds swamp the counts.
+const PEOPLE = "&basisOfRecord=HUMAN_OBSERVATION&basisOfRecord=OBSERVATION&basisOfRecord=PRESERVED_SPECIMEN&basisOfRecord=OCCURRENCE";
 log("GBIF species list");
 const list = await getJson(
   `https://api.gbif.org/v1/occurrence/search?country=SA&classKey=${AVES}&limit=0&facet=speciesKey&facetLimit=3000`
@@ -68,7 +70,7 @@ const counts = list.facets[0].counts
 log(`${counts.length} species keys`);
 
 const effortRes = await getJson(
-  `https://api.gbif.org/v1/occurrence/search?country=SA&classKey=${AVES}&limit=0&facet=month&facetLimit=12`
+  `https://api.gbif.org/v1/occurrence/search?country=SA&classKey=${AVES}&limit=0&facet=month&facetLimit=12${PEOPLE}`
 );
 const effort = Array(12).fill(0);
 for (const c of effortRes.facets[0].counts) effort[Number(c.name) - 1] = c.count;
@@ -81,7 +83,7 @@ const gbifRows = await mapLimit(counts, 3, async ({ key, count }) => {
     const sp = await getJson(`https://api.gbif.org/v1/species/${key}`);
     if (sp.rank !== "SPECIES") return null;
     const m = await getJson(
-      `https://api.gbif.org/v1/occurrence/search?country=SA&speciesKey=${key}&limit=0&facet=month&facetLimit=12`
+      `https://api.gbif.org/v1/occurrence/search?country=SA&speciesKey=${key}&limit=0&facet=month&facetLimit=12${PEOPLE}`
     );
     const months = Array(12).fill(0);
     for (const c of m.facets?.[0]?.counts ?? []) months[Number(c.name) - 1] = c.count;
