@@ -95,3 +95,18 @@ await Promise.all(Array.from({ length: 4 }, async () => {
 await writeFile(new URL("effort.json", OUT), JSON.stringify([...effort.entries()].map(([k, n]) => [Math.floor(k / 12), k % 12, n])));
 await writeFile(new URL("meta.json", OUT), JSON.stringify({ generatedAt: new Date().toISOString(), bbox: BBOX, elev: { step: ELEV_STEP, cols, rows }, grid: { cell: CELL, cols: gc, rows: gr } }));
 console.log("map data done");
+
+// ---------- one packed file for the site (per-species files stay for reference) ----------
+{
+  const sp = {}, yr = {};
+  for (const b of idx.birds) {
+    try {
+      const j = JSON.parse(await readFile(new URL(`sp/${b.id}.json`, OUT), "utf8"));
+      if (j.c.length) { sp[b.id] = j.c; if (j.y) yr[b.id] = j.y; }
+    } catch {}
+  }
+  const meta = JSON.parse(await readFile(new URL("meta.json", OUT), "utf8"));
+  const eff = JSON.parse(await readFile(new URL("effort.json", OUT), "utf8"));
+  await writeFile(new URL("map.json", OUT), JSON.stringify({ meta, effort: eff, sp, yr }));
+  console.log(`packed ${Object.keys(sp).length} species`);
+}

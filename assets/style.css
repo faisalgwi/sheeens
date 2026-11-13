@@ -405,3 +405,21 @@ html.is-local .local-only { display: inline-block; }
 .clip-btn.on { border-color: var(--primary); background: var(--accent); }
 .clip-btn.on .pi { animation: pulse 1s infinite; }
 @keyframes pulse { 50% { opacity: .5; } }
+
+/* 3D map */
+.map-bar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
+.seg { display: inline-flex; border: 1px solid var(--border); border-radius: 999px; overflow: hidden; background: var(--card); }
+.seg button { border: 0; background: none; padding: 8px 14px; cursor: pointer; font: inherit; color: var(--muted-fg); }
+.seg button.on { background: var(--primary); color: var(--primary-fg); }
+.map-title { font-weight: 700; margin: 6px 0 8px; }
+.map-title a { color: var(--primary); text-decoration: none; }
+.map-wrap { border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; background: radial-gradient(ellipse at 50% 30%, var(--card), var(--surface)); }
+.map3d { position: relative; height: min(68vh, 640px); touch-action: none; }
+.map3d canvas { display: block; width: 100%; height: 100%; }
+.map-labels { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.map-labels span { position: absolute; left: 0; top: 0; font-size: 11px; font-weight: 600; color: var(--fg); background: color-mix(in srgb, var(--card) 80%, transparent); padding: 0 5px; border-radius: 4px; white-space: nowrap; }
+.map-tip { position: absolute; display: none; pointer-events: none; background: var(--fg); color: var(--bg); font-size: 12px; padding: 4px 8px; border-radius: 6px; white-space: nowrap; }
+.map-months { display: flex; gap: 8px; align-items: center; padding: 10px; border-top: 1px solid var(--border); background: var(--card); }
+.map-months .btn { padding: 6px 14px; flex: none; }
+.map-months .month-pick { flex: 1; padding-bottom: 0; }
+@media (max-width: 760px) { .map3d { height: min(86vw, 62vh); } .map-labels span { font-size: 10px; } }

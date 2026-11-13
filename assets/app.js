@@ -390,6 +390,7 @@ async function pageBird(id) {
         <div class="badges">
           ${b.hunting ? `<span class="badge hunt">من طيور المقناص${b.group ? ` · ${esc(b.group)}` : ""}</span>` : b.group ? `<span class="badge">${esc(b.group)}</span>` : ""}
           <span class="badge" title="${esc(st.hint)}">${st.icon} ${st.label}</span>
+          <a class="badge" href="#map-${b.id}" style="text-decoration:none;color:var(--primary);border-color:var(--primary)">🗺 على الخريطة</a>
           ${b.iucn ? `<span class="badge ${["VU", "EN", "CR"].includes(b.iucn) ? "warn" : ""}">القائمة الحمراء: ${esc(IUCN[b.iucn] ?? b.iucn)}</span>` : ""}
         </div>
         <div class="name-table">${nameRows.map(([k, v]) => `<div><span class="k">${k}</span><span>${v}</span></div>`).join("")}</div>
@@ -825,6 +826,91 @@ async function pageSettings() {
   });
 }
 
+// ---------- 3D map ----------
+const nearestPlace = (lon, lat) => {
+  let best = null, bd = 1e9;
+  for (const [n, la, lo] of REGIONS) { const d = (la - lat) ** 2 + (lo - lon) ** 2; if (d < bd) { bd = d; best = n; } }
+  return bd < 0.6 ? `قرب ${best}` : `${lat.toFixed(1)}°، ${lon.toFixed(1)}° (أقرب مدينة: ${best})`;
+};
+async function pageMap(id) {
+  setActiveNav("map");
+  const data = await loadIndex();
+  const birds = data.birds;
+  const mod = await import("./map3d.js");
+  const mapData = await mod.loadMapData().catch(() => null);
+  if (!mapData) {
+    app.innerHTML = `<h1>الخريطة</h1><div class="empty" style="margin-top:16px">بيانات الخريطة تتجهز الحين وتوصل قريباً.</div>`;
+    return;
+  }
+  const def = birds.find((b) => b.sci === "Streptopelia turtur") ?? birds[0];
+  let bird = birds.find((b) => String(b.id) === String(id)) ?? def;
+  const state = { month: store.get("mapMonth", NOW_MONTH), mode: store.get("mapMode", "rel"), playing: null };
+  const opts = birds.filter((b) => b.hunting).concat(birds.filter((b) => !b.hunting));
+  app.innerHTML = `
+    <div class="section-head" style="margin-bottom:10px"><div><h1>الخريطة</h1><p>وين سُجّل كل طير في المملكة، شهراً بشهر. حرّك الخريطة بإصبعك أو بالماوس، وقرّب وبعّد.</p></div></div>
+    <div class="map-bar">
+      <label class="search" style="flex:1;min-width:220px"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <input id="mq" list="mlist" placeholder="اختر طيراً: قميري، صفاري، بلبول…" autocomplete="off"></label>
+      <datalist id="mlist">${opts.map((b) => `<option value="${esc(b.local || displayName(b))} · ${esc(b.sci)}">`).join("")}</datalist>
+      <div class="seg"><button data-mode="rel" class="${state.mode === "rel" ? "on" : ""}" title="السجلات مقسومة على نشاط الراصدين في المكان">الكثافة</button><button data-mode="raw" class="${state.mode === "raw" ? "on" : ""}">عدد السجلات</button></div>
+    </div>
+    <div class="map-title" id="mtitle"></div>
+    <div class="map-wrap">
+      <div class="map3d" id="map3d"><div class="loading">جاري تحميل الخريطة…</div></div>
+      <div class="map-months">
+        <button class="btn" id="mplay" aria-label="تشغيل الأشهر" title="مرّر الأشهر تلقائياً">▶</button>
+        <button class="btn" id="mreset" aria-label="رجّع الخريطة" title="رجّع الخريطة لوضعها">⟲</button>
+        <div class="month-pick" id="mmonths" style="margin:0">
+          <button class="chip ${state.month < 0 ? "on" : ""}" data-m="-1">كل السنة</button>
+          ${MONTHS.map((n, i) => `<button class="chip ${state.month === i ? "on" : ""}" data-m="${i}">${n}</button>`).join("")}
+        </div>
+      </div>
+    </div>
+    <div class="two-col">
+      <div class="panel"><h3 id="topTitle">أكثر الأماكن</h3><ul class="list" id="mtop"></ul></div>
+      <div class="panel"><h3>متى يكثر في المملكة</h3><div class="cal" id="mcal"></div><div class="legend"><span>اضغط على أي شهر</span></div>
+        <p class="muted" style="font-size:.82rem;margin-bottom:0">«الكثافة» تقسم سجلات الطير على مجموع سجلات كل الطيور في نفس المكان والشهر، عشان ما تطغى الأماكن اللي يكثر فيها الراصدون. المصدر GBIF ويشمل eBird. هذي سجلات، وغياب العمود ما يعني غياب الطير.</p></div>
+    </div>`;
+  const map = await mod.mountMap(document.getElementById("map3d"), { nearest: nearestPlace });
+  const totals = mapData.sp;
+  const draw = () => {
+    const cells = map.show(bird.id, state.month, state.mode);
+    const total = cells.reduce((a, x) => a + x.n, 0);
+    document.getElementById("mtitle").innerHTML = `<a href="#bird-${bird.id}">${esc(bird.local || displayName(bird))}</a> <span class="latin muted">${esc(bird.sci)}</span> · ${state.month < 0 ? "كل السنة" : MONTHS[state.month]} · ${fmt.format(total)} سجلاً${mapData.yr?.[bird.id] ? ` <span class="muted" style="font-weight:400">(سجلات ${mapData.yr[bird.id][0]}–${mapData.yr[bird.id][1]})</span>` : ""}`;
+    document.getElementById("mtop").innerHTML = cells.length ? map.top(cells).map((x, i) => `<li><div class="grow"><span class="t">${i + 1}. ${esc(nearestPlace(x.lon, x.lat))}</span><div class="s">${fmt.format(x.n)} سجلاً</div></div><div class="side"><a href="https://www.google.com/maps?q=${x.lat.toFixed(3)},${x.lon.toFixed(3)}" target="_blank" rel="noopener">الموقع</a></div></li>`).join("")
+      : `<li class="muted">ما فيه سجلات لهذا الطير في ${state.month < 0 ? "السنة" : MONTHS[state.month]}.</li>`;
+    const per = Array(12).fill(0);
+    for (const [, m, n] of totals[bird.id] ?? []) per[m] += n;
+    const mx = Math.max(1, ...per);
+    document.getElementById("mcal").innerHTML = per.map((n, i) => `<div class="col ${i === state.month ? "now" : ""}" data-m="${i}" style="cursor:pointer" title="${MONTHS[i]}: ${n}"><div class="bar" style="height:${Math.max(3, (n / mx) * 100)}%"></div><span class="lbl">${MONTHS_SHORT[i]}</span></div>`).join("");
+    document.querySelectorAll("#mmonths .chip").forEach((c) => c.classList.toggle("on", Number(c.dataset.m) === state.month));
+  };
+  const setMonth = (m) => { state.month = m; store.set("mapMonth", m); draw(); };
+  document.getElementById("mmonths").addEventListener("click", (e) => { const c = e.target.closest("[data-m]"); if (c) setMonth(Number(c.dataset.m)); });
+  document.getElementById("mcal").addEventListener("click", (e) => { const c = e.target.closest("[data-m]"); if (c) setMonth(Number(c.dataset.m)); });
+  document.querySelectorAll("[data-mode]").forEach((b) => b.addEventListener("click", () => {
+    state.mode = b.dataset.mode; store.set("mapMode", state.mode);
+    document.querySelectorAll("[data-mode]").forEach((x) => x.classList.toggle("on", x === b)); draw();
+  }));
+  const play = document.getElementById("mplay");
+  play.addEventListener("click", () => {
+    if (state.playing) { clearInterval(state.playing); state.playing = null; play.textContent = "▶"; return; }
+    play.textContent = "⏸";
+    state.playing = setInterval(() => {
+      if (!document.getElementById("mplay")) { clearInterval(state.playing); return; }
+      setMonth(state.month < 0 ? 0 : (state.month + 1) % 12);
+    }, 1300);
+  });
+  document.getElementById("mreset").addEventListener("click", () => map.reset());
+  const q = document.getElementById("mq");
+  q.addEventListener("change", () => {
+    const sci = q.value.split(" · ").pop();
+    const b = birds.find((x) => x.sci === sci) ?? birds.find((x) => norm([x.ar, x.local, x.en, x.sci].join(" ")).includes(norm(q.value)));
+    if (b) { bird = b; q.value = ""; q.blur(); draw(); }
+  });
+  draw();
+}
+
 // ---------- router ----------
 async function route() {
   const raw = decodeURIComponent(location.hash.replace(/^#\/?/, ""));
@@ -844,12 +930,13 @@ async function route() {
     else if (parts[0] === "library") await pageLibrary(params);
     else if (parts[0] === "lib" && parts[1]) await pageLibBird(parts[1]);
     else if (parts[0] === "settings") await pageSettings();
+    else if (parts[0] === "map") await pageMap(parts[1]);
     else await pageHome(params);
   } catch (e) {
     app.innerHTML = errorView(e);
   }
 }
-window.addEventListener("hashchange", () => { route(); if (!/bird|lib-/.test(location.hash)) window.scrollTo(0, 0); });
+window.addEventListener("hashchange", () => { route(); if (!/bird|lib-|map/.test(location.hash)) window.scrollTo(0, 0); });
 route();
 
 loadIndex().then((d) => {
