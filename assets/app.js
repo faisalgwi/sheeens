@@ -672,7 +672,21 @@ function libLink(x) {
   if (!ART || x.part == null) return "";
   return `${ART.libUrls[x.part]}#b${x.bi}`;
 }
+const mmss = (t) => `${Math.floor(t / 60)}:${String(Math.round(t % 60)).padStart(2, "0")}`;
+let player, playingBtn;
+function playClip(btn) {
+  player ??= new Audio();
+  if (playingBtn === btn && !player.paused) { player.pause(); btn.classList.remove("on"); return; }
+  playingBtn?.classList.remove("on");
+  const start = Number(btn.dataset.s), end = start + Number(btn.dataset.d), src = btn.dataset.f;
+  player.ontimeupdate = () => { if (player.currentTime >= end) { player.pause(); btn.classList.remove("on"); } };
+  const go = () => { player.currentTime = start; player.play().catch(() => {}); };
+  if (!player.src.endsWith(src)) { player.src = src; player.addEventListener("loadedmetadata", go, { once: true }); player.load(); } else go();
+  btn.classList.add("on"); playingBtn = btn;
+}
+document.addEventListener("click", (e) => { const b = e.target.closest?.(".clip-btn"); if (b) playClip(b); });
 function clipList(clips, x) {
+  if (ART && x?.au != null) return `<div class="clips">${clips.map((c) => `<button class="clip-btn" data-f="au/b${x.au}.mp3" data-s="${c.t[0]}" data-d="${c.t[1]}"><span class="pi">▶</span><span class="cl">${esc(c.l)}</span><span class="muted">${mmss(c.t[1])}</span></button>`).join("")}</div>`;
   if (ART) return `<ul class="list">${clips.map((c) => `<li><div class="grow">${esc(c.l)}</div></li>`).join("")}</ul>
     ${x ? `<a class="btn" style="margin-top:10px" href="${esc(libLink(x))}" target="_blank" rel="noopener">▶ استمع لكل المقاطع في المكتبة</a>` : ""}`;
   return clips.map((c) => `<div class="sound"><div><b>${esc(c.l)}</b></div><audio controls preload="none" src="${esc(audioSrc(c.p))}"></audio></div>`).join("");
@@ -711,7 +725,7 @@ async function pageLibrary(params) {
     document.getElementById("lcount").textContent = `${fmt.format(r.length)} نوعاً`;
     document.getElementById("llist").innerHTML = r.length ? r.slice(0, state.shown).map((x) => `<li><div class="grow"><a class="t" href="#lib-${x.i}">${esc(x.ar)}</a>${x.local ? ` <span style="color:var(--primary);font-weight:600">· ${esc(x.local)}</span>` : ""}
       <div class="s"><span class="en">${esc(x.en)}</span> · <span class="latin">${esc(x.sci ?? "")}</span></div></div>
-      <div class="side">${fmt.format(x.clips.length)} مقطع${saudi.has(x.sci) ? "<br>🇸🇦" : ""}</div></li>`).join("") : `<li class="muted">ما فيه نتائج.</li>`;
+      <div class="side">${ART && x.au == null ? "↗ " : ART ? "▶ " : ""}${fmt.format(x.clips.length)} مقطع${saudi.has(x.sci) ? "<br>🇸🇦" : ""}</div></li>`).join("") : `<li class="muted">ما فيه نتائج.</li>`;
     document.getElementById("lmore").innerHTML = r.length > state.shown ? `<button class="btn ghost" id="lmb">عرض المزيد</button>` : "";
     document.getElementById("lmb")?.addEventListener("click", () => { state.shown += 120; draw(); });
   };
