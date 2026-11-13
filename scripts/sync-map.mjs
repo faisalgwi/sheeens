@@ -1,6 +1,6 @@
 // Map data for the 3D map: Saudi terrain heightmap + where each bird was recorded, per month (GBIF, includes eBird).
 // Output: data/map/meta.json, data/map/elev.bin (Int16 LE), data/map/effort.json, data/map/sp/<gbifKey>.json
-import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { readFile, writeFile, mkdir, appendFile } from "node:fs/promises";
 import { PNG } from "pngjs";
 
 const DATA = new URL("../data/", import.meta.url);
@@ -15,7 +15,7 @@ await mkdir(new URL("sp/", OUT), { recursive: true });
 async function get(url, as = "json", tries = 5) {
   for (let i = 0; ; i++) {
     try {
-      const r = await fetch(url, { headers: UA });
+      const r = await fetch(url, { headers: UA, signal: AbortSignal.timeout(60000) });
       if (r.ok) return as === "json" ? r.json() : Buffer.from(await r.arrayBuffer());
       if (r.status !== 429 && r.status < 500) throw new Error(`HTTP ${r.status}`);
     } catch (e) { if (i >= tries) throw e; }
@@ -65,17 +65,22 @@ const cellOf = (lat, lon) => {
 const idx = JSON.parse(await readFile(new URL("birds.json", DATA), "utf8"));
 const MAX = 10000;           // records per bird is plenty for a map
 const FRESH = 6 * 864e5;     // skip birds fetched in the last 6 days (lets a cut-off run resume)
-const LEGACY_T = Date.parse("2026-11-13T12:00:00Z"); // files from the first run carry no time stamp
+const V = 2;                 // v2: people's sightings only (no GPS-tag tracks, which swamp the map)
+const BASIS = "&basisOfRecord=HUMAN_OBSERVATION&basisOfRecord=OBSERVATION&basisOfRecord=PRESERVED_SPECIMEN&basisOfRecord=OCCURRENCE";
+const LOG = new URL("run-log.txt", OUT);
+await writeFile(LOG, `start ${new Date().toISOString()}\n`);
+const t0 = Date.now();
 let done = 0;
 async function species(b) {
   try {
     const old = JSON.parse(await readFile(new URL(`sp/${b.id}.json`, OUT), "utf8"));
-    if (Date.now() - (old.t ?? LEGACY_T) < FRESH) { done++; return; }
+    if (old.v === V && Date.now() - old.t < FRESH) { done++; return; }
   } catch {}
-  const counts = new Map();
-  let years = [];
+  const counts = new Map(), ts = Date.now();
+  let years = [], pages = 0;
   for (let off = 0; off < MAX; off += 300) {
-    const r = await get(`https://api.gbif.org/v1/occurrence/search?country=SA&speciesKey=${b.id}&hasCoordinate=true&hasGeospatialIssue=false&limit=300&offset=${off}`);
+    const r = await get(`https://api.gbif.org/v1/occurrence/search?country=SA&speciesKey=${b.id}&hasCoordinate=true&hasGeospatialIssue=false&limit=300&offset=${off}${BASIS}`);
+    pages++;
     for (const o of r.results) {
       if (o.decimalLatitude == null || !o.month) continue;
       const cell = cellOf(o.decimalLatitude, o.decimalLongitude);
@@ -88,14 +93,17 @@ async function species(b) {
   }
   const c = [...counts.entries()].map(([k, n]) => [Math.floor(k / 12), k % 12, n]);
   years.sort((a, b2) => a - b2);
-  await writeFile(new URL(`sp/${b.id}.json`, OUT), JSON.stringify({ id: b.id, t: Date.now(), c, y: years.length ? [years[0], years[years.length - 1]] : null }));
-  if (++done % 25 === 0) console.log(`species ${done}/${idx.birds.length}`);
+  await writeFile(new URL(`sp/${b.id}.json`, OUT), JSON.stringify({ id: b.id, v: V, t: Date.now(), c, y: years.length ? [years[0], years[years.length - 1]] : null }));
+  ++done;
+  await appendFile(LOG, `${b.id} ${pages}p ${Date.now() - ts}ms (${done}/${idx.birds.length}, ${Math.round((Date.now() - t0) / 1000)}s)\n`);
+  if (done % 25 === 0) console.log(`species ${done}/${idx.birds.length}`);
 }
 const queue = [...idx.birds];
 await Promise.all(Array.from({ length: 6 }, async () => {
   while (queue.length) {
     const b = queue.shift();
-    try { await species(b); } catch (e) { console.log("fail", b.id, e.message); }
+    try { await species(b); } catch (e) { console.log("fail", b.id, e.message); await appendFile(LOG, `fail ${b.id} ${e.message}\n`); }
   }
 }));
+await appendFile(LOG, `done ${Math.round((Date.now() - t0) / 1000)}s\n`);
 console.log("species done");
