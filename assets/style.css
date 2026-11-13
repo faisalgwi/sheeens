@@ -390,3 +390,9 @@ html, body { overflow-x: hidden; }
 @media (hover: none) { .card:hover { transform: none; } }
 
 .list.panel { padding: 4px 18px; }
+
+.local-only { display: none; }
+html.is-local .local-only { display: inline-block; }
+.sp { width: 100%; height: 100%; background-repeat: no-repeat; }
+.ph-empty { width: 100%; height: 100%; display: grid; place-items: center; color: var(--muted-fg); font-size: .85rem; background: var(--muted); }
+.list .thumb .sp { border-radius: 8px; }

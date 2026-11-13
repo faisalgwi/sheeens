@@ -41,8 +41,24 @@ const store = {
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
 };
 
+// ---------- private Claude page mode (no outside requests allowed there) ----------
+const ART = window.SHEEENS_ARTIFACT ?? null;
+const SP_COLS = 8;
+function pic(b, extra = "") {
+  if (ART) {
+    const sp = b.sp;
+    if (!sp) return `<div class="ph-empty ${extra}">بلا صورة</div>`;
+    const [sheet, i] = sp;
+    const col = i % SP_COLS, row = Math.floor(i / SP_COLS), rows = ART.spriteRows[sheet];
+    return `<div class="sp ${extra}" role="img" aria-label="${esc(displayName(b))}" style="background-image:url(ph/${sheet}.jpg);background-size:${SP_COLS * 100}% ${rows * 100}%;background-position:${(col / (SP_COLS - 1)) * 100}% ${rows > 1 ? (row / (rows - 1)) * 100 : 0}%"></div>`;
+  }
+  const u = b.ph ?? b.photos?.[0]?.u;
+  return u ? `<img loading="lazy" src="${esc(photo(u, extra === "big" ? "large" : "medium"))}" alt="${esc(displayName(b))}">` : `<div class="ph-empty">بلا صورة</div>`;
+}
+
 // ---------- local (personal) mode ----------
 const LOCAL = ["127.0.0.1", "localhost"].includes(location.hostname);
+if (LOCAL) document.documentElement.classList.add("is-local");
 let statusPromise;
 const apiStatus = () => (statusPromise ??= LOCAL ? fetch("/api/status").then((r) => (r.ok ? r.json() : {})).catch(() => ({})) : Promise.resolve({}));
 const slimObs = (o) => ({ code: o.speciesCode, sci: o.sciName, en: o.comName, loc: o.locName, dt: o.obsDt, n: o.howMany ?? null, lat: o.lat, lng: o.lng, sub: o.subId });
@@ -82,7 +98,15 @@ function loadCornell() {
   return cornellPromise;
 }
 const audioSrc = (p) => "../" + p.split("/").map(encodeURIComponent).join("/");
+let allDetails;
 async function loadDetail(id) {
+  if (ART) {
+    allDetails ??= fetch("data/details.json").then((r) => r.json());
+    const d = (await allDetails)[id];
+    if (!d) throw new Error("الطير غير موجود");
+    d.ar = plain(d.ar);
+    return d;
+  }
   if (!detailCache.has(id)) {
     detailCache.set(id, fetch(`data/b/${id}.json`).then((r) => { if (!r.ok) throw new Error("الطير غير موجود"); return r.json(); })
       .then((b) => { b.ar = plain(b.ar); b.arAlt = [...new Set((b.arAlt ?? []).map(plain).filter((x) => x && x !== b.ar))]; return b; }));
@@ -111,11 +135,11 @@ function rampColor(p) {
   return "var(--ramp-0)";
 }
 function card(b) {
-  const img = photo(b.ph, "medium");
+  const img = ART ? b.sp : photo(b.ph, "medium");
   const st = STATUS[b.status] ?? STATUS.unknown;
-  return `<a class="card" href="#/bird/${b.id}">
+  return `<a class="card" href="#bird-${b.id}">
     ${b.hunting ? `<span class="mark">مقناص</span>` : ""}
-    <div class="ph ${img ? "" : "empty"}">${img ? `<img loading="lazy" src="${esc(img)}" alt="${esc(displayName(b))}">` : "بلا صورة"}</div>
+    <div class="ph ${img ? "" : "empty"}">${img ? pic(b) : "بلا صورة"}</div>
     <div class="body">
       <div class="ar">${esc(displayName(b))}</div>
       ${b.local && b.local !== b.ar ? `<div class="local">${esc(b.local)}</div>` : ""}
@@ -144,7 +168,17 @@ const dateAr = (d) => new Date(d.replace(" ", "T")).toLocaleDateString("ar-SA-u-
 
 // ---------- weather ----------
 const wxCache = new Map();
+let wxSnap;
 async function fetchWeather(lat, lon) {
+  if (ART) {
+    wxSnap ??= fetch("data/weather.json").then((r) => r.json());
+    const snap = await wxSnap;
+    const name = REGIONS.find((r) => r[1] === lat && r[2] === lon)?.[0];
+    const d = snap.regions[name];
+    if (!d) throw new Error("ما فيه بيانات طقس لهذي المنطقة");
+    d.snapshotAt = snap.generatedAt;
+    return d;
+  }
   const key = `${lat.toFixed(2)},${lon.toFixed(2)}`;
   const hit = wxCache.get(key);
   if (hit && Date.now() - hit.t < 15 * 60e3) return hit.data;
@@ -216,7 +250,7 @@ async function renderWxMini(el) {
         <div class="wx-cell"><small>الاتجاه</small><b><span class="arrow" style="transform:rotate(${c.wind_direction_10m + 180}deg)">↑</span> ${dirName(c.wind_direction_10m)}</b></div>
         <div class="wx-cell"><small>الهبات</small><b>${Math.round(c.wind_gusts_10m)} كم/س</b></div>
       </div>
-      <a class="link-more" href="#/weather">توقعات 7 أيام ←</a>`;
+      <a class="link-more" href="#weather">توقعات 7 أيام ←</a>`;
     el.querySelector("#wxMiniSel").onchange = (e) => { store.set("region", e.target.value); renderWxMini(el); };
   } catch (e) {
     el.insertAdjacentHTML("beforeend", errorView(e));
@@ -260,7 +294,7 @@ async function pageHome(params) {
     </section>
 
     <section class="section">
-      <div class="section-head"><div><h2>طيور المقناص</h2><p>الأنواع اللي يعرفها أهل المقناص بأسمائها الدارجة.</p></div><a class="link-more" href="#/hunting">كلها ←</a></div>
+      <div class="section-head"><div><h2>طيور المقناص</h2><p>الأنواع اللي يعرفها أهل المقناص بأسمائها الدارجة.</p></div><a class="link-more" href="#hunting">كلها ←</a></div>
       <div class="scroller">${hunting.slice(0, 16).map(card).join("")}</div>
     </section>
 
@@ -342,12 +376,12 @@ async function pageBird(id) {
   ];
 
   app.innerHTML = `
-    <div class="crumbs"><a href="#/">الطيور</a> / ${b.famAr ? `${esc(b.famAr)} / ` : ""}${esc(displayName(b))}</div>
+    <div class="crumbs"><a href="#home">الطيور</a> / ${b.famAr ? `${esc(b.famAr)} / ` : ""}${esc(displayName(b))}</div>
     <div class="bird-top">
       <div class="gallery">
-        <div class="main-ph" id="mainPh">${photos[0] ? `<img src="${esc(photo(photos[0].u, "large"))}" alt="${esc(displayName(b))}">` : `<div class="empty" style="height:100%;display:grid;place-items:center">لا توجد صورة</div>`}</div>
+        <div class="main-ph" id="mainPh">${ART ? pic({ ...b, sp: index.birds.find((x) => x.id === b.id)?.sp }, "big") : photos[0] ? `<img src="${esc(photo(photos[0].u, "large"))}" alt="${esc(displayName(b))}">` : `<div class="empty" style="height:100%;display:grid;place-items:center">لا توجد صورة</div>`}</div>
         <div class="credit" id="credit">${photos[0] ? esc(photos[0].a) : ""}</div>
-        ${photos.length > 1 ? `<div class="thumbs">${photos.map((p, i) => `<button class="${i === 0 ? "on" : ""}" data-i="${i}" aria-label="صورة ${i + 1}"><img loading="lazy" src="${esc(photo(p.u, "square"))}" alt=""></button>`).join("")}</div>` : ""}
+        ${photos.length > 1 && !ART ? `<div class="thumbs">${photos.map((p, i) => `<button class="${i === 0 ? "on" : ""}" data-i="${i}" aria-label="صورة ${i + 1}"><img loading="lazy" src="${esc(photo(p.u, "square"))}" alt=""></button>`).join("")}</div>` : ""}
       </div>
       <div class="names">
         <h1>${esc(displayName(b))} <button class="fav-btn ${favs.has(b.id) ? "on" : ""}" id="favBtn" aria-label="مفضلة" title="أضف للمفضلة">${favs.has(b.id) ? "★" : "☆"}</button></h1>
@@ -391,7 +425,7 @@ async function pageBird(id) {
         ${b.sounds?.length ? b.sounds.map((s) => `
           <div class="sound">
             <div><b>${esc(soundType(s.type))}</b> <span class="muted">· ${esc(s.cnt ?? "")}${s.len ? ` · ${esc(s.len)}` : ""}</span></div>
-            <audio controls preload="none" src="${esc(s.file)}"></audio>
+            ${ART ? `<a class="btn ghost" style="justify-self:start;padding:5px 14px" href="${esc(s.url)}" target="_blank" rel="noopener">▶ استمع في xeno-canto</a>` : `<audio controls preload="none" src="${esc(s.file)}"></audio>`}
             <div class="meta">تسجيل: ${esc(s.rec)} · <a href="${esc(s.url)}" target="_blank" rel="noopener">XC${esc(s.id)}</a> · <a href="${esc(s.lic?.startsWith("//") ? "https:" + s.lic : s.lic)}" target="_blank" rel="noopener">الرخصة</a></div>
           </div>`).join("") : `<p class="muted">لا توجد تسجيلات محفوظة بعد. تقدر تسمعه مباشرة في <a href="https://xeno-canto.org/explore?query=${encodeURIComponent(b.inatName || b.sci)}" target="_blank" rel="noopener">xeno-canto</a>.</p>`}
         <p class="muted" style="font-size:.8rem;margin-bottom:0">للتعرّف والتعلّم فقط. استخدام الأصوات أو أجهزة النداء لجذب الطيور في الصيد ممنوع نظاماً.</p>
@@ -422,8 +456,8 @@ async function pageBird(id) {
   const lib = cornell.find((x) => x.sci && (x.sci === b.sci || x.sci === b.inatName));
   const libBox = document.getElementById("libBox");
   if (libBox && lib) libBox.innerHTML = `<div class="panel" style="margin-top:16px"><h3>من مكتبتك: دليل كورنيل (${fmt.format(lib.clips.length)} مقطعاً)</h3>
-    <p class="muted" style="font-size:.85rem;margin:4px 0 0">تسجيلات من أمريكا وكندا لنفس النوع. <a href="#/lib/${lib.i}">صفحته في المكتبة</a></p>
-    ${clipList(lib.clips.slice(0, 6))}</div>`;
+    <p class="muted" style="font-size:.85rem;margin:4px 0 0">تسجيلات من أمريكا وكندا لنفس النوع. <a href="#lib-${lib.i}">صفحته في المكتبة</a></p>
+    ${clipList(lib.clips.slice(0, 6), lib)}</div>`;
 
   const api = await apiStatus();
   const s = await loadSightings();
@@ -449,9 +483,9 @@ function soundType(t) {
 function sightingRow(o, bird) {
   const map = o.lat ? `https://www.google.com/maps?q=${o.lat},${o.lng}` : null;
   return `<li>
-    ${bird?.id ? `<a class="thumb" href="#/bird/${bird.id}">${bird.ph ? `<img loading="lazy" src="${esc(photo(bird.ph, "square"))}" alt="">` : ""}</a>` : bird ? `<span class="thumb"></span>` : ""}
+    ${bird?.id ? `<a class="thumb" href="#bird-${bird.id}">${(ART ? bird.sp : bird.ph) ? pic(bird) : ""}</a>` : bird ? `<span class="thumb"></span>` : ""}
     <div class="grow">
-      ${bird?.id ? `<a class="t" href="#/bird/${bird.id}">${esc(bird.local || displayName(bird))}</a>` : bird ? `<span class="t en">${esc(displayName(bird))}</span>` : ""}
+      ${bird?.id ? `<a class="t" href="#bird-${bird.id}">${esc(bird.local || displayName(bird))}</a>` : bird ? `<span class="t en">${esc(displayName(bird))}</span>` : ""}
       <div class="${bird ? "s" : "t"}">${o.hidden ? "الموقع مخفي لحماية النوع" : esc(o.loc)}</div>
       <div class="s">${dateAr(o.dt)}${o.n ? ` · العدد: ${fmt.format(o.n)}` : ""}</div>
     </div>
@@ -495,7 +529,7 @@ async function pageMigration(params) {
     (b.presence?.[m] ?? 0) >= 0.5 && (b.presence?.[(m + 11) % 12] ?? 0) < 0.3);
   app.innerHTML = `
     <div class="section-head"><div><h1>هجرة ${MONTHS[m]}</h1><p>الطيور اللي فرصة وجودها في المملكة عالية في هذا الشهر، حسب سجلات GBIF وeBird. هذا تقدير مبني على السجلات، وليس رصداً لحظياً.</p></div></div>
-    <div class="month-pick">${MONTHS.map((n, i) => `<a class="chip ${i === m ? "on" : ""}" href="#/migration?m=${i}">${n}</a>`).join("")}</div>
+    <div class="month-pick">${MONTHS.map((n, i) => `<a class="chip ${i === m ? "on" : ""}" href="#migration-${i}">${n}</a>`).join("")}</div>
     ${arriving.length ? `<section class="section"><div class="section-head"><div><h2>يبدأ وصولها في ${MONTHS[m]}</h2><p>كانت قليلة الشهر الماضي وتزيد هذا الشهر.</p></div></div><div class="scroller">${arriving.map(card).join("")}</div></section>` : ""}
     ${order.map((s) => {
       const list = present.filter((b) => b.status === s).sort((a, b) => (b.presence[m] - a.presence[m]) || (b.n - a.n));
@@ -540,6 +574,7 @@ async function pageWeather() {
             <div class="kpi"><small>الغروب</small><b>${hm(days[0].sunset)}</b></div>
           </div>
         </div>
+        ${w.snapshotAt ? `<p class="muted" style="font-size:.8rem;margin:12px 0 0">آخر تحديث للطقس: ${timeAgo(w.snapshotAt)} (يتحدث تلقائياً كل 3 ساعات)</p>` : ""}
         <p class="note" style="margin:16px 0 0">🧭 ${esc(migrationWindNote(c.wind_direction_10m, NOW_MONTH))}</p>
       </div>
 
@@ -605,8 +640,8 @@ async function pageSightings(params) {
   app.innerHTML = `
     <div class="section-head"><div><h1>المشاهدات الحديثة</h1><p>آخر رصد لكل نوع في المملكة خلال 30 يوماً، من سجلات راصدي eBird. ${s.live ? "مباشر من eBird الآن." : `حُدّثت ${timeAgo(s.generatedAt)}.`}</p></div></div>
     <div class="filters">
-      <a class="chip ${huntingOnly ? "" : "on"}" href="#/sightings">كل الطيور (${fmt.format(s.latest.length)})</a>
-      <a class="chip ${huntingOnly ? "on" : ""}" href="#/sightings?h=1">طيور المقناص فقط</a>
+      <a class="chip ${huntingOnly ? "" : "on"}" href="#sightings">كل الطيور (${fmt.format(s.latest.length)})</a>
+      <a class="chip ${huntingOnly ? "on" : ""}" href="#sightings-h">طيور المقناص فقط</a>
     </div>
     ${s.live ? `<div class="panel" style="margin-bottom:16px"><div class="wx-head" style="margin:0"><h3>قريب من منطقتي (50 كم · آخر 14 يوماً)</h3>${regionSelect("nearSel", currentRegion()[0])}</div><div id="nearBox"><div class="skel" style="height:60px;margin-top:10px"></div></div></div>` : ""}
     <div class="two-col" style="margin-top:0">
@@ -633,14 +668,20 @@ async function pageSightings(params) {
 }
 
 // ---------- Cornell library (personal) ----------
-function clipList(clips) {
+function libLink(x) {
+  if (!ART || x.part == null) return "";
+  return `${ART.libUrls[x.part]}#b${x.bi}`;
+}
+function clipList(clips, x) {
+  if (ART) return `<ul class="list">${clips.map((c) => `<li><div class="grow">${esc(c.l)}</div></li>`).join("")}</ul>
+    ${x ? `<a class="btn" style="margin-top:10px" href="${esc(libLink(x))}" target="_blank" rel="noopener">▶ استمع لكل المقاطع في المكتبة</a>` : ""}`;
   return clips.map((c) => `<div class="sound"><div><b>${esc(c.l)}</b></div><audio controls preload="none" src="${esc(audioSrc(c.p))}"></audio></div>`).join("");
 }
 async function pageLibrary(params) {
   setActiveNav("library");
   const list = await loadCornell();
   if (!list.length) {
-    app.innerHTML = `<h1>المكتبة</h1><div class="empty" style="margin-top:16px">المكتبة تشتغل من جهازك فقط. شغّل الموقع من ملف «شغّل الموقع» داخل مجلد مكتبة كورنيل.</div>`;
+    app.innerHTML = `<h1>المكتبة</h1><div class="empty" style="margin-top:16px">المكتبة غير متاحة هنا. شغّل الموقع من ملف «شغّل الموقع» داخل مجلد مكتبة كورنيل.</div>`;
     return;
   }
   const fams = [...new Set(list.map((x) => x.fam))];
@@ -648,7 +689,7 @@ async function pageLibrary(params) {
   const total = list.reduce((a, x) => a + x.clips.length, 0);
   const saudi = new Set((await loadIndex()).birds.map((b) => b.sci));
   app.innerHTML = `
-    <div class="section-head"><div><h1>المكتبة الصوتية</h1><p>دليل كورنيل لأصوات الطيور (أمريكا وكندا) من جهازك: ${fmt.format(list.length)} نوعاً و${fmt.format(total)} مقطعاً. للاستخدام الشخصي فقط.</p></div></div>
+    <div class="section-head"><div><h1>المكتبة الصوتية</h1><p>دليل كورنيل لأصوات الطيور (أمريكا وكندا)${ART ? "" : " من جهازك"}: ${fmt.format(list.length)} نوعاً و${fmt.format(total)} مقطعاً. للاستخدام الشخصي فقط.</p></div></div>
     <label class="search" style="margin-bottom:12px">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
       <input id="lq" type="search" placeholder="ابحث بالعربي أو الدارج أو الإنجليزي أو العلمي" value="${esc(state.q)}" autocomplete="off">
@@ -668,7 +709,7 @@ async function pageLibrary(params) {
     if (state.only === "local") r = r.filter((x) => x.local);
     if (state.only === "saudi") r = r.filter((x) => saudi.has(x.sci));
     document.getElementById("lcount").textContent = `${fmt.format(r.length)} نوعاً`;
-    document.getElementById("llist").innerHTML = r.length ? r.slice(0, state.shown).map((x) => `<li><div class="grow"><a class="t" href="#/lib/${x.i}">${esc(x.ar)}</a>${x.local ? ` <span style="color:var(--primary);font-weight:600">· ${esc(x.local)}</span>` : ""}
+    document.getElementById("llist").innerHTML = r.length ? r.slice(0, state.shown).map((x) => `<li><div class="grow"><a class="t" href="#lib-${x.i}">${esc(x.ar)}</a>${x.local ? ` <span style="color:var(--primary);font-weight:600">· ${esc(x.local)}</span>` : ""}
       <div class="s"><span class="en">${esc(x.en)}</span> · <span class="latin">${esc(x.sci ?? "")}</span></div></div>
       <div class="side">${fmt.format(x.clips.length)} مقطع${saudi.has(x.sci) ? "<br>🇸🇦" : ""}</div></li>`).join("") : `<li class="muted">ما فيه نتائج.</li>`;
     document.getElementById("lmore").innerHTML = r.length > state.shown ? `<button class="btn ghost" id="lmb">عرض المزيد</button>` : "";
@@ -691,9 +732,9 @@ async function pageLibBird(i) {
   const sa = (await loadIndex()).birds.find((b) => b.sci === x.sci);
   document.title = `${x.ar} | المكتبة`;
   app.innerHTML = `
-    <div class="crumbs"><a href="#/library">المكتبة</a> / ${esc(x.fam)} / ${esc(x.ar)}</div>
+    <div class="crumbs"><a href="#library">المكتبة</a> / ${esc(x.fam)} / ${esc(x.ar)}</div>
     <div class="bird-top">
-      <div class="gallery"><div class="main-ph" id="lph">${sa?.ph ? `<img src="${esc(photo(sa.ph, "large"))}" alt="">` : `<div class="skel" style="height:100%"></div>`}</div><div class="credit" id="lcr"></div></div>
+      <div class="gallery"><div class="main-ph" id="lph">${(ART ? sa?.sp : sa?.ph) ? pic(sa, "big") : ART ? `<div class="ph-empty">لا توجد صورة</div>` : `<div class="skel" style="height:100%"></div>`}</div><div class="credit" id="lcr"></div></div>
       <div class="names">
         <h1>${esc(x.ar)}</h1>
         ${x.local ? `<div class="local-big">${esc(x.local)}</div>` : ""}
@@ -702,14 +743,14 @@ async function pageLibBird(i) {
           <div><span class="k">بالإنجليزي</span><span class="en">${esc(x.en)}</span></div>
           <div><span class="k">الاسم العلمي</span><span class="latin">${esc(x.sci ?? "")}</span></div>
           <div><span class="k">الفصيلة</span><span>${esc(x.fam)}</span></div>
-          <div><span class="k">في السعودية</span><span>${sa ? `<a href="#/bird/${sa.id}" style="color:var(--primary)">نعم، افتح صفحته ←</a>` : `<span class="muted">غير مسجّل في السعودية</span>`}</span></div>
+          <div><span class="k">في السعودية</span><span>${sa ? `<a href="#bird-${sa.id}" style="color:var(--primary)">نعم، افتح صفحته ←</a>` : `<span class="muted">غير مسجّل في السعودية</span>`}</span></div>
         </div>
       </div>
     </div>
-    <div class="panel" style="margin-top:16px"><h3>المقاطع (${fmt.format(x.clips.length)})</h3>${clipList(x.clips)}
+    <div class="panel" style="margin-top:16px"><h3>المقاطع (${fmt.format(x.clips.length)})</h3>${clipList(x.clips, x)}
       <p class="muted" style="font-size:.8rem;margin-bottom:0">من The Cornell Guide to Bird Sounds، مكتبة ماكولي. للاستخدام الشخصي فقط، واستخدام الأصوات لجذب الطيور في الصيد ممنوع.</p></div>`;
   window.scrollTo(0, 0);
-  if (!sa?.ph && x.sci) {
+  if (!ART && !sa?.ph && x.sci) {
     try {
       const r = await fetch(`https://api.inaturalist.org/v1/taxa?q=${encodeURIComponent(x.sci)}&rank=species&per_page=1`).then((r) => r.json());
       const p = r.results?.[0]?.default_photo;
@@ -772,10 +813,13 @@ async function pageSettings() {
 
 // ---------- router ----------
 async function route() {
-  const raw = location.hash.replace(/^#\/?/, "");
+  const raw = decodeURIComponent(location.hash.replace(/^#\/?/, ""));
   const [path, qs] = raw.split("?");
   const params = new URLSearchParams(qs ?? "");
-  const parts = path.split("/").filter(Boolean);
+  const m = path.match(/^([a-z]+)[-/]?(.*)$/) ?? [];
+  const parts = [m[1] ?? "", m[2] ?? ""].filter(Boolean);
+  if (parts[0] === "migration" && parts[1]) params.set("m", parts[1]);
+  if (parts[0] === "sightings" && parts[1] === "h") params.set("h", "1");
   document.title = "شينز | دليل طيور السعودية";
   try {
     if (parts[0] === "bird" && parts[1]) await pageBird(parts[1]);
@@ -791,7 +835,7 @@ async function route() {
     app.innerHTML = errorView(e);
   }
 }
-window.addEventListener("hashchange", () => { route(); if (!location.hash.startsWith("#/bird")) window.scrollTo(0, 0); });
+window.addEventListener("hashchange", () => { route(); if (!/bird|lib-/.test(location.hash)) window.scrollTo(0, 0); });
 route();
 
 loadIndex().then((d) => {
